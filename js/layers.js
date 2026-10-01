@@ -52,6 +52,26 @@ export const LAYERS = {
   },
 };
 
+// Online-only overlays. kind 'tile' → XYZ template, kind 'wms' → WMS GetMap.
+export const OVERLAYS = {
+  trails: {
+    name: 'Senderos señalizados (GR, PR, SL)',
+    kind: 'tile',
+    url: 'https://tile.waymarkedtrails.org/hiking/{z}/{x}/{y}.png',
+    maxNativeZoom: 17,
+    opacity: 0.85,
+    attribution: 'Senderos © <a href="https://hiking.waymarkedtrails.org" target="_blank" rel="noopener">Waymarked Trails</a> (CC-BY-SA)',
+  },
+  natura: {
+    name: 'Espacios protegidos (Red Natura 2000)',
+    kind: 'wms',
+    url: 'https://bio.discomap.eea.europa.eu/arcgis/services/ProtectedSites/Natura2000Sites/MapServer/WMSServer',
+    layers: '0,1,2',
+    opacity: 0.45,
+    attribution: 'Natura 2000 © <a href="https://www.eea.europa.eu" target="_blank" rel="noopener">EEA</a>',
+  },
+};
+
 export function tileUrl(layerId, z, x, y) {
   return LAYERS[layerId].url.replace('{z}', z).replace('{x}', x).replace('{y}', y);
 }

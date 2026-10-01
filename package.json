@@ -4,11 +4,13 @@
   "description": "PWA para registrar paseos por la naturaleza con mapas del IGN y descarga offline por zonas",
   "scripts": {
     "start": "python3 -m http.server 8080",
-    "vendor": "cp node_modules/leaflet/dist/leaflet.js node_modules/leaflet/dist/leaflet.css vendor/leaflet/ && cp -r node_modules/leaflet/dist/images vendor/leaflet/"
+    "vendor": "mkdir -p vendor/leaflet vendor/maplibre vendor/suncalc && cp node_modules/leaflet/dist/leaflet.js node_modules/leaflet/dist/leaflet.css vendor/leaflet/ && cp -r node_modules/leaflet/dist/images vendor/leaflet/ && cp node_modules/maplibre-gl/dist/maplibre-gl.js node_modules/maplibre-gl/dist/maplibre-gl.css node_modules/maplibre-gl/LICENSE.txt vendor/maplibre/ && cp node_modules/suncalc/suncalc.js vendor/suncalc/"
   },
   "license": "MIT",
   "private": true,
   "devDependencies": {
-    "leaflet": "^1.9.4"
+    "leaflet": "^1.9.4",
+    "maplibre-gl": "^5.24.0",
+    "suncalc": "^1.9.0"
   }
 }

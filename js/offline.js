@@ -1,8 +1,12 @@
 import { LAYERS, tileUrl } from './layers.js';
 import { db } from './db.js';
+import { demUrl, DEM_Z, DEM_FAR_Z } from './dem.js';
+import { prefetchPeaks } from './peaks.js';
+import { PANO_RADIUS } from './panorama.js';
 
 export const MIN_ZOOM = 6;
 export const MAX_TILES = 15000;
+const DEM_KB = 95;
 const CONCURRENCY = 4;
 const RETRIES = 2;
 
@@ -25,6 +29,12 @@ function clip(bounds, layerId) {
   return b.south < b.north && b.west < b.east ? b : null;
 }
 
+function expand(b, meters) {
+  const dLat = meters / 111132;
+  const dLon = meters / (111320 * Math.cos((((b.south + b.north) / 2) * Math.PI) / 180));
+  return { south: b.south - dLat, west: b.west - dLon, north: b.north + dLat, east: b.east + dLon };
+}
+
 function* tiles(bounds, minZ, maxZ) {
   for (let z = minZ; z <= maxZ; z++) {
     const max = 2 ** z - 1;
@@ -36,14 +46,26 @@ function* tiles(bounds, minZ, maxZ) {
   }
 }
 
-export function estimate(bounds, layerId, maxZ) {
+function count(b, minZ, maxZ) {
+  let n = 0;
+  for (let z = minZ; z <= maxZ; z++) n += (lon2x(b.east, z) - lon2x(b.west, z) + 1) * (lat2y(b.south, z) - lat2y(b.north, z) + 1);
+  return n;
+}
+
+// Relief = DEM tiles for the zone itself (slopes, 3D, elevations) plus coarse DEM around it for the peak panorama.
+function reliefSpecs(bounds, maxZ) {
+  return [
+    { bounds, minZ: MIN_ZOOM, maxZ: Math.min(maxZ, DEM_Z), url: demUrl },
+    { bounds: expand(bounds, PANO_RADIUS), minZ: DEM_FAR_Z, maxZ: DEM_FAR_Z, url: demUrl },
+  ];
+}
+
+export function estimate(bounds, layerId, maxZ, withRelief) {
   const b = clip(bounds, layerId);
   if (!b) return { tiles: 0, bytes: 0, outside: true };
-  let n = 0;
-  for (let z = MIN_ZOOM; z <= maxZ; z++) {
-    n += (lon2x(b.east, z) - lon2x(b.west, z) + 1) * (lat2y(b.south, z) - lat2y(b.north, z) + 1);
-  }
-  return { tiles: n, bytes: n * LAYERS[layerId].avgKB * 1024, outside: false };
+  const mapTiles = count(b, MIN_ZOOM, maxZ);
+  const demTiles = withRelief ? reliefSpecs(bounds, maxZ).reduce((n, s) => n + count(s.bounds, s.minZ, s.maxZ), 0) : 0;
+  return { tiles: mapTiles + demTiles, bytes: mapTiles * LAYERS[layerId].avgKB * 1024 + demTiles * DEM_KB * 1024, outside: false };
 }
 
 async function fetchTile(url, signal) {
@@ -62,9 +84,9 @@ async function fetchTile(url, signal) {
   throw lastErr;
 }
 
-export async function downloadZone({ name, layerId, bounds, maxZ }, { onProgress, signal }) {
+export async function downloadZone({ name, layerId, bounds, maxZ, withRelief }, { onProgress, signal }) {
   const b = clip(bounds, layerId);
-  const total = estimate(bounds, layerId, maxZ).tiles;
+  const total = estimate(bounds, layerId, maxZ, withRelief).tiles;
   const zone = {
     id: crypto.randomUUID(),
     name,
@@ -72,21 +94,24 @@ export async function downloadZone({ name, layerId, bounds, maxZ }, { onProgress
     bounds: b,
     minZ: MIN_ZOOM,
     maxZ,
+    relief: !!withRelief,
     tiles: total,
     bytes: 0,
     failed: 0,
     created: Date.now(),
   };
+  const specs = [{ bounds: b, minZ: MIN_ZOOM, maxZ, url: (z, x, y) => tileUrl(layerId, z, x, y) }, ...(withRelief ? reliefSpecs(bounds, maxZ) : [])];
+  const urls = (function* () { for (const s of specs) for (const [z, x, y] of tiles(s.bounds, s.minZ, s.maxZ)) yield s.url(z, x, y); })();
+
   const cacheName = `zone-${zone.id}`;
   const cache = await caches.open(cacheName);
-  const iter = tiles(b, MIN_ZOOM, maxZ);
   const internal = new AbortController();
   const stop = AbortSignal.any([signal, internal.signal]);
   let done = 0;
 
   const worker = async () => {
-    for (let next = iter.next(); !next.done && !stop.aborted; next = iter.next()) {
-      const url = tileUrl(layerId, ...next.value);
+    for (let next = urls.next(); !next.done && !stop.aborted; next = urls.next()) {
+      const url = next.value;
       try {
         const res = await fetchTile(url, stop);
         const blob = await res.blob();
@@ -115,6 +140,10 @@ export async function downloadZone({ name, layerId, bounds, maxZ }, { onProgress
     await caches.delete(cacheName);
     if (signal.aborted) return null;
     throw new Error('No se pudo descargar ninguna tesela. Revisa la conexión.');
+  }
+  if (withRelief) {
+    const e = expand(bounds, PANO_RADIUS);
+    zone.peaks = await prefetchPeaks(e.south, e.west, e.north, e.east).then((r) => r.complete).catch(() => false);
   }
   await db.put('zones', zone);
   return zone;

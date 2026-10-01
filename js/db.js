@@ -1,5 +1,5 @@
 const DB_NAME = 'sendas';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 let dbPromise;
 
 function open() {
@@ -8,9 +8,13 @@ function open() {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
       req.onupgradeneeded = () => {
         const db = req.result;
-        db.createObjectStore('walks', { keyPath: 'id' });
-        db.createObjectStore('zones', { keyPath: 'id' });
-        db.createObjectStore('state');
+        const ensure = (name, opts) => (db.objectStoreNames.contains(name) ? req.transaction.objectStore(name) : db.createObjectStore(name, opts));
+        ensure('walks', { keyPath: 'id' });
+        ensure('zones', { keyPath: 'id' });
+        ensure('state');
+        const photos = ensure('photos', { keyPath: 'id' });
+        if (!photos.indexNames.contains('walkId')) photos.createIndex('walkId', 'walkId');
+        ensure('peaks');
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -35,4 +39,12 @@ export const db = {
   get: (store, key) => run(store, 'readonly', (s) => s.get(key)),
   put: (store, value, key) => run(store, 'readwrite', (s) => (key === undefined ? s.put(value) : s.put(value, key))),
   delete: (store, key) => run(store, 'readwrite', (s) => s.delete(key)),
+  byIndex: (store, index, value) => run(store, 'readonly', (s) => s.index(index).getAll(value)),
+  deleteByIndex: (store, index, value) => run(store, 'readwrite', (s) => {
+    const req = s.index(index).openKeyCursor(IDBKeyRange.only(value));
+    req.onsuccess = () => {
+      const c = req.result;
+      if (c) { s.delete(c.primaryKey); c.continue(); }
+    };
+  }),
 };

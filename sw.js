@@ -1,4 +1,4 @@
-const SHELL = 'shell-v3';
+const SHELL = 'shell-v4';
 const ASSETS = [
   './',
   'index.html',
@@ -10,6 +10,21 @@ const ASSETS = [
   'js/layers.js',
   'js/offline.js',
   'js/tracker.js',
+  'js/ui.js',
+  'js/dem.js',
+  'js/slope.js',
+  'js/routefollow.js',
+  'js/sun.js',
+  'js/sos.js',
+  'js/planner.js',
+  'js/weather.js',
+  'js/photos.js',
+  'js/view3d.js',
+  'js/peaks.js',
+  'js/panorama.js',
+  'vendor/suncalc/suncalc.js',
+  'vendor/maplibre/maplibre-gl.js',
+  'vendor/maplibre/maplibre-gl.css',
   'vendor/leaflet/leaflet.js',
   'vendor/leaflet/leaflet.css',
   'vendor/leaflet/images/layers.png',
@@ -40,7 +55,8 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
 
-  if (TILE_HOSTS.some((h) => url.hostname === h || url.hostname.endsWith(`.${h}`))) {
+  const isDem = url.hostname === 's3.amazonaws.com' && url.pathname.startsWith('/elevation-tiles-prod/');
+  if (isDem || TILE_HOSTS.some((h) => url.hostname === h || url.hostname.endsWith(`.${h}`))) {
     // Downloaded zones live in per-zone caches; caches.match searches all of them.
     event.respondWith((async () => {
       const hit = await caches.match(req.url);

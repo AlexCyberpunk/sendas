@@ -47,6 +47,7 @@ export class Locator extends EventTarget {
 
 export class Tracker extends EventTarget {
   state = 'idle';
+  id = null;
   points = [];
   waypoints = [];
   seg = 0;
@@ -70,14 +71,14 @@ export class Tracker extends EventTarget {
   async restore() {
     const cur = await db.get('state', 'current');
     if (!cur) return false;
-    Object.assign(this, cur, { state: 'paused', resumedAt: null });
+    Object.assign(this, cur, { state: 'paused', resumedAt: null, id: cur.id ?? crypto.randomUUID() });
     this.seg++;
     this.#emit();
     return true;
   }
 
   start() {
-    Object.assign(this, { points: [], waypoints: [], seg: 0, startedAt: Date.now(), activeMs: 0 });
+    Object.assign(this, { id: crypto.randomUUID(), points: [], waypoints: [], seg: 0, startedAt: Date.now(), activeMs: 0 });
     this.resume();
   }
 
@@ -103,7 +104,7 @@ export class Tracker extends EventTarget {
   finish() {
     this.pause();
     const walk = {
-      id: crypto.randomUUID(),
+      id: this.id,
       start: this.startedAt,
       end: Date.now(),
       activeMs: this.activeMs,
@@ -115,7 +116,7 @@ export class Tracker extends EventTarget {
   }
 
   async reset() {
-    Object.assign(this, { state: 'idle', points: [], waypoints: [], seg: 0, startedAt: null, activeMs: 0, resumedAt: null });
+    Object.assign(this, { state: 'idle', id: null, points: [], waypoints: [], seg: 0, startedAt: null, activeMs: 0, resumedAt: null });
     await db.delete('state', 'current');
     this.#emit();
   }
@@ -134,16 +135,16 @@ export class Tracker extends EventTarget {
   async persist() {
     if (this.state === 'idle') return;
     this.#lastPersist = Date.now();
-    const { points, waypoints, seg, startedAt } = this;
+    const { id, points, waypoints, seg, startedAt } = this;
     const activeMs = this.elapsedMs;
-    await db.put('state', { points, waypoints, seg, startedAt, activeMs }, 'current');
+    await db.put('state', { id, points, waypoints, seg, startedAt, activeMs }, 'current');
   }
 
   #onFix(pos) {
     if (this.state !== 'recording') return;
     const c = pos.coords;
     if (c.accuracy > MAX_ACCURACY) return;
-    const pt = [c.latitude, c.longitude, c.altitude, pos.timestamp, this.seg];
+    const pt = [c.latitude, c.longitude, c.altitude, pos.timestamp, this.seg, null];
     const prev = this.points[this.points.length - 1];
     if (prev && prev[P.SEG] === this.seg) {
       const d = haversine(prev[P.LAT], prev[P.LON], pt[P.LAT], pt[P.LON]);
