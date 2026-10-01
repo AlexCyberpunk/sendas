@@ -1,4 +1,4 @@
-const SHELL = 'shell-v4';
+const SHELL = 'shell-v5';
 const ASSETS = [
   './',
   'index.html',
@@ -22,6 +22,7 @@ const ASSETS = [
   'js/view3d.js',
   'js/peaks.js',
   'js/panorama.js',
+  'data/peaks-es.json',
   'vendor/suncalc/suncalc.js',
   'vendor/maplibre/maplibre-gl.js',
   'vendor/maplibre/maplibre-gl.css',

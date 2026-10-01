@@ -30,7 +30,7 @@ export async function buildModel(lat, lon, fallbackAlt) {
   const [near, far, peakData] = await Promise.all([
     gridAround(lat, lon, NEAR + 300, DEM_Z),
     gridAround(lat, lon, PANO_RADIUS, DEM_FAR_Z),
-    peaksAround(lat, lon, PANO_RADIUS).catch(() => ({ peaks: [], complete: false })),
+    peaksAround(lat, lon, PANO_RADIUS).catch(() => ({ peaks: [], complete: false, source: null })),
   ]);
   if (near.empty && far.empty) throw new Error('Sin datos de relieve para esta zona. Conéctate o descárgala con relieve.');
   const cosLat = Math.cos(rad(lat));
@@ -69,7 +69,7 @@ export async function buildModel(lat, lon, fallbackAlt) {
     const blocking = maxAngle(az, dist * 0.96);
     peaks.push({ ...p, dist, az, angle, ele: p.ele ?? Math.round(ele), visible: angle >= blocking - VISIBLE_TOL });
   }
-  return { lat, lon, h0, horizon, peaks, complete: peakData.complete };
+  return { lat, lon, h0, horizon, peaks, complete: peakData.complete, source: peakData.source };
 }
 
 // Camera direction from DeviceOrientation (W3C ZXY Euler angles): the back camera looks along device −Z.
@@ -143,10 +143,13 @@ function draw() {
     g.shadowBlur = 0;
   }
 
-  // Labels: highest peaks first, stacked in rows so they don't overlap.
+  // Labels: higher summits first, with a bonus for those that form the skyline;
+  // stacked in rows so they don't overlap.
+  const skyAt = (az) => m.horizon[Math.round(((az % 360) + 360) % 360 / AZ_STEP) % N_AZ];
+  const rank = (p) => p.ele + (p.angle >= skyAt(p.az) - 0.3 ? 300 : 0);
   const shown = m.peaks
     .filter((p) => p.visible && Math.abs(wrap180(p.az - hc)) <= S.fov / 2)
-    .sort((a, b) => b.ele - a.ele);
+    .sort((a, b) => rank(b) - rank(a));
   const rows = [];
   const placed = [];
   g.font = '600 13px system-ui, sans-serif';
@@ -157,11 +160,10 @@ function draw() {
     const w = Math.max(g.measureText(label).width, g.measureText(sub).width * 0.85) + 12;
     const lx = Math.max(w / 2 + 4, Math.min(W - w / 2 - 4, x));
     let row = rows.findIndex((r) => r.every(([l, rr]) => lx + w / 2 < l || lx - w / 2 > rr));
-    if (row === -1) { if (rows.length >= 5) continue; rows.push([]); row = rows.length - 1; }
+    if (row === -1) { if (rows.length >= 4) continue; rows.push([]); row = rows.length - 1; }
     rows[row].push([lx - w / 2, lx + w / 2]);
     // The DEM rounds summits off, so anchor on the drawn skyline rather than above it.
-    const sky = m.horizon[Math.round(((p.az % 360) + 360) % 360 / AZ_STEP) % N_AZ];
-    placed.push({ x, lx, y: Y(Math.min(p.angle, sky)), row, w, label, sub });
+    placed.push({ x, lx, y: Y(Math.min(p.angle, skyAt(p.az))), row, w, label, sub });
   }
   const top = 70;
   for (const { x, lx, y, row, w, label, sub } of placed) {
@@ -270,7 +272,8 @@ function renderList() {
   const hidden = m.peaks.length - vis.length;
   $('#pano-list').innerHTML = `
     <p class="hint">${vis.length} picos visibles${hidden ? ` · ${hidden} tapados por el relieve` : ''}${m.complete ? '' : ' · lista incompleta (sin conexión)'}</p>
-    <ul>${vis.map((p) => `<li><b>${esc(p.name)}</b> <span>${Math.round(p.ele)} m · ${(p.dist / 1000).toFixed(1)} km · ${fmt.compass(p.az)} ${Math.round(p.az)}°</span></li>`).join('') || '<li>No hay picos con nombre a la vista.</li>'}</ul>`;
+    <ul>${vis.map((p) => `<li><b>${esc(p.name)}</b> <span>${Math.round(p.ele)} m · ${(p.dist / 1000).toFixed(1)} km · ${fmt.compass(p.az)} ${Math.round(p.az)}°</span></li>`).join('') || '<li>No hay picos con nombre a la vista.</li>'}</ul>
+    <p class="hint">${m.source === 'ign' ? 'Picos: Nomenclátor Geográfico Básico de España © IGN (CC BY 4.0). Altitudes del modelo del terreno.' : 'Picos: © colaboradores de OpenStreetMap (ODbL).'}</p>`;
 }
 
 export function closePanorama() {

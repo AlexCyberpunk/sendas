@@ -2,6 +2,11 @@ import { db } from './db.js';
 import { haversine } from './geo.js';
 
 const OVERPASS = 'https://overpass-api.de/api/interpreter';
+// 66 500 summits ("Montaña") from the IGN's Nomenclátor Geográfico Básico, shipped with the app
+// as [lat, lon, name]; precached by the service worker so Spain works offline from day one.
+const BUNDLE = 'data/peaks-es.json';
+const SPAIN = { s: 27.4, w: -18.5, n: 44.1, e: 4.6 };
+const NEAR_SPAIN_M = 15000;
 const CELL = 0.25;
 const MAX_AGE = 90 * 24 * 3600e3;
 
@@ -65,6 +70,29 @@ async function peaksInBBox(s, w, n, e) {
   return { peaks: [...all.values()], complete };
 }
 
+let bundle = null;
+function loadBundle() {
+  bundle ??= fetch(BUNDLE)
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`peaks ${r.status}`))))
+    .then((rows) => rows.map(([lat, lon, name], i) => ({ id: `ign${i}`, lat, lon, name, ele: null })))
+    .catch((e) => { bundle = null; throw e; });
+  return bundle;
+}
+
+const inSpainBox = (lat, lon) => lat >= SPAIN.s && lat <= SPAIN.n && lon >= SPAIN.w && lon <= SPAIN.e;
+
+// The bounding box also covers Portugal and southern France; only trust the bundle when there
+// are Spanish summits close by, otherwise fall back to OpenStreetMap.
+async function bundledAround(lat, lon, radiusM) {
+  if (!inSpainBox(lat, lon)) return null;
+  const all = await loadBundle().catch(() => null);
+  if (!all) return null;
+  const near = all.filter((p) => Math.abs(p.lat - lat) < 0.6 && Math.abs(p.lon - lon) < 0.8)
+    .map((p) => ({ p, d: haversine(lat, lon, p.lat, p.lon) }));
+  if (!near.some(({ d }) => d <= NEAR_SPAIN_M)) return null;
+  return near.filter(({ d }) => d <= radiusM).map(({ p }) => p);
+}
+
 export function bboxAround(lat, lon, radiusM) {
   const dLat = radiusM / 111132;
   const dLon = radiusM / (111320 * Math.cos((lat * Math.PI) / 180));
@@ -72,8 +100,15 @@ export function bboxAround(lat, lon, radiusM) {
 }
 
 export async function peaksAround(lat, lon, radiusM) {
+  const local = await bundledAround(lat, lon, radiusM);
+  if (local) return { complete: true, source: 'ign', peaks: local };
   const { peaks, complete } = await peaksInBBox(...bboxAround(lat, lon, radiusM));
-  return { complete, peaks: peaks.filter((p) => haversine(lat, lon, p.lat, p.lon) <= radiusM) };
+  return { complete, source: 'osm', peaks: peaks.filter((p) => haversine(lat, lon, p.lat, p.lon) <= radiusM) };
 }
 
-export const prefetchPeaks = (s, w, n, e) => peaksInBBox(s, w, n, e);
+export async function prefetchPeaks(s, w, n, e) {
+  const lat = (s + n) / 2;
+  const lon = (w + e) / 2;
+  if (await bundledAround(lat, lon, 1)) return { complete: true };
+  return peaksInBBox(s, w, n, e);
+}

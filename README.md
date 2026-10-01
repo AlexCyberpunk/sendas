@@ -13,7 +13,7 @@ PWA para registrar paseos por la naturaleza. Sin backend ni build: HTML + JS (m�
 - **Previsión del tiempo** (Open-Meteo) corregida a la altitud del punto: próximas horas, 3 días, rachas, isocero y avisos. La última consulta queda guardada para verla sin conexión.
 - **Capas**: IGN Topográfico, IGN Base y ortofoto PNOA (España); OpenTopoMap y OSM (mundial, solo online). Superpuestas: senderos señalizados (Waymarked Trails), Red Natura 2000 (EEA) y pendientes del terreno ≥ 25° calculadas del MDT.
 - **Vista 3D** del relieve con la capa base actual, trazados y pendientes.
-- **Identificador de picos**: horizonte calculado desde el MDT (40 km, con curvatura y refracción), picos de OpenStreetMap con prueba de visibilidad, brújula del móvil, cámara y ajuste manual arrastrando.
+- **Identificador de picos**: horizonte calculado desde el MDT (40 km, con curvatura y refracción), prueba de visibilidad de cada pico, brújula del móvil, cámara y ajuste manual arrastrando. En España usa las 66 504 montañas del Nomenclátor Geográfico Básico del IGN incluidas en la app (`data/peaks-es.json`, 2,4 MB; ~0,6 MB descargados con brotli) y funciona sin conexión desde la instalación; fuera de España consulta OpenStreetMap.
 - **Zonas sin conexión** (capas IGN) con opción de incluir relieve y picos para que pendientes, 3D, altitudes y panorama funcionen sin cobertura.
 - Historial local (IndexedDB), exportar/compartir GPX e importar GPX.
 
@@ -35,9 +35,14 @@ Al cambiar archivos de la app, sube la versión de `SHELL` en `sw.js` para que l
 | IGN/CNIG WMTS | Mapas base de España | Sí, con zonas descargadas |
 | AWS Terrain Tiles (Terrarium) | MDT global (~30 m) | Sí, con zonas con relieve |
 | BRouter (brouter.de) | Ajuste a senderos al planificar | No (tramos en línea recta) |
-| Overpass API (OSM) | Picos con nombre | Sí, caché por celdas en IndexedDB |
+| IGN Nomenclátor (NGBE) | Picos de España, incluidos en la app | Sí |
+| Overpass API (OSM) | Picos fuera de España | Sí, caché por celdas en IndexedDB |
 | Open-Meteo | Previsión del tiempo | Última consulta guardada |
 | Waymarked Trails, EEA Natura 2000 | Capas superpuestas | No |
+
+## Datos de picos
+
+`data/peaks-es.json` se genera desde el WFS INSPIRE del Nomenclátor (`https://www.ign.es/wfs-inspire/ngbe`), filtrando `localType = Montaña` y guardando `[lat, lon, nombre]`. Los nombres son los oficiales (p. ej. «Picu Urriellu» para el Naranjo de Bulnes) y el Nomenclátor no incluye altitud, que se toma del MDT.
 
 ## Limitaciones conocidas
 
@@ -49,4 +54,4 @@ Al cambiar archivos de la app, sube la versión de `SHELL` en `sw.js` para que l
 
 ## Atribución
 
-Mapas © IGN/CNIG (CC BY 4.0), © colaboradores de OpenStreetMap (ODbL), © OpenTopoMap (CC-BY-SA), senderos © Waymarked Trails (CC-BY-SA), Natura 2000 © EEA, relieve © Mapzen/AWS Terrain Tiles, rutas BRouter, tiempo © Open-Meteo (CC BY 4.0).
+Mapas y Nomenclátor Geográfico Básico © IGN/CNIG (CC BY 4.0), © colaboradores de OpenStreetMap (ODbL), © OpenTopoMap (CC-BY-SA), senderos © Waymarked Trails (CC-BY-SA), Natura 2000 © EEA, relieve © Mapzen/AWS Terrain Tiles, rutas BRouter, tiempo © Open-Meteo (CC BY 4.0).
