@@ -1,4 +1,4 @@
-const SHELL = 'shell-v7';
+const SHELL = 'shell-v8';
 const ASSETS = [
   './',
   'index.html',

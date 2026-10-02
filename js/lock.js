@@ -1,4 +1,12 @@
-import { $ } from './ui.js';
+import { $, store } from './ui.js';
+
+export const LOCK_COLORS = {
+  white: { label: 'Blanco', value: '#f2f2f2' },
+  grey: { label: 'Gris', value: '#9e9e9e' },
+  red: { label: 'Rojo', value: '#ff4d4d' },
+  green: { label: 'Verde', value: '#5fd37a' },
+  blue: { label: 'Azul', value: '#5aa9ff' },
+};
 
 const TURNS_TO_UNLOCK = 3;
 const MIN_RADIUS = 28;
@@ -22,6 +30,24 @@ export class LockScreen extends EventTarget {
     el.addEventListener('pointerup', () => this.#reset());
     el.addEventListener('pointercancel', () => this.#reset());
     el.addEventListener('contextmenu', (e) => e.preventDefault());
+    const swatches = $('#lock-colors');
+    swatches.innerHTML = Object.entries(LOCK_COLORS)
+      .map(([id, c]) => `<button type="button" data-color="${id}" title="${c.label}" aria-label="Color ${c.label.toLowerCase()}" style="background:${c.value}"></button>`)
+      .join('');
+    // Taps on the swatches must not start an unlock stroke.
+    swatches.addEventListener('pointerdown', (e) => e.stopPropagation());
+    swatches.addEventListener('click', (e) => {
+      const id = e.target.closest('[data-color]')?.dataset.color;
+      if (id) this.setColor(id);
+    });
+    this.setColor(store.get('lockColor') ?? 'white');
+  }
+
+  setColor(id) {
+    const c = LOCK_COLORS[id] ?? LOCK_COLORS.white;
+    $('#lockscreen').style.setProperty('--lock-fg', c.value);
+    document.querySelectorAll('#lock-colors [data-color]').forEach((b) => b.classList.toggle('on', b.dataset.color === id));
+    store.set('lockColor', id);
   }
 
   lock() {

@@ -319,18 +319,22 @@ dialog .share-fields label.na { color: var(--muted); opacity: .6; }
 .sim-marker { background: #1565c0; border: 3px solid #fff; border-radius: 50%; box-shadow: 0 0 0 2px rgba(21,101,192,.4), 0 2px 6px rgba(0,0,0,.4); }
 
 .lockscreen {
-  position: fixed; inset: 0; z-index: 5000; background: #000; color: #f2f2f2;
+  --lock-fg: #f2f2f2;
+  position: fixed; inset: 0; z-index: 5000; background: #000; color: var(--lock-fg);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
   padding: 24px; touch-action: none; user-select: none; -webkit-user-select: none;
 }
 .lock-clock { font-size: 68px; font-weight: 300; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
 .lock-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px 28px; text-align: center; width: 100%; max-width: 420px; }
 .lock-grid span { display: block; font-size: clamp(26px, 9vw, 40px); font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.lock-grid small { color: #9aa; text-transform: uppercase; letter-spacing: .06em; font-size: 12px; }
-.lock-line { font-size: 17px; text-align: center; color: #e0e0e0; min-height: 1em; }
+.lock-grid small { color: color-mix(in srgb, var(--lock-fg) 62%, #000); text-transform: uppercase; letter-spacing: .06em; font-size: 12px; }
+.lock-line { font-size: 17px; text-align: center; color: color-mix(in srgb, var(--lock-fg) 90%, #000); min-height: 1em; }
 .lock-line.warn { color: #ff8a65; font-weight: 600; }
-.lock-line.dim { color: #8a9; font-size: 14px; }
-.lock-hint { position: absolute; bottom: calc(env(safe-area-inset-bottom, 0px) + 28px); left: 16px; right: 16px; text-align: center; color: #778; font-size: 13px; }
+.lock-line.dim { color: color-mix(in srgb, var(--lock-fg) 58%, #000); font-size: 14px; }
+.lock-hint { position: absolute; bottom: calc(env(safe-area-inset-bottom, 0px) + 28px); left: 16px; right: 16px; text-align: center; color: color-mix(in srgb, var(--lock-fg) 45%, #000); font-size: 13px; }
 .lock-progress { display: flex; gap: 10px; justify-content: center; margin-bottom: 10px; }
-.lock-progress i { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #556; }
-.lock-progress i.on { background: #7fd18b; border-color: #7fd18b; }
+.lock-progress i { width: 12px; height: 12px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--lock-fg) 40%, #000); }
+.lock-progress i.on { background: var(--lock-fg); border-color: var(--lock-fg); }
+.lock-colors { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 18px); left: 0; right: 0; display: flex; justify-content: center; gap: 14px; }
+.lock-colors button { width: 30px; height: 30px; border-radius: 50%; border: 2px solid #000; box-shadow: 0 0 0 2px #333; cursor: pointer; padding: 0; }
+.lock-colors button.on { box-shadow: 0 0 0 3px #000, 0 0 0 5px var(--lock-fg); }
