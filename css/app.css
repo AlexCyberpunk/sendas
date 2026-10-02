@@ -149,7 +149,7 @@ dialog {
 dialog::backdrop { background: rgba(0, 0, 0, .45); }
 dialog h3 { margin: 0 0 12px; }
 dialog label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
-dialog input:not([type=range]), dialog textarea, dialog select {
+dialog input:not([type=range]):not([type=checkbox]), dialog textarea, dialog select {
   display: block; width: 100%; margin-top: 4px; padding: 10px; font: inherit; color: var(--text);
   background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
 }
@@ -272,3 +272,22 @@ dialog h4 { margin: 14px 0 6px; font-size: 14px; }
 
 .grade-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--muted); margin: -4px 0 12px; }
 .grade-legend i { display: inline-block; width: 14px; height: 4px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+
+/* ---------- share image ---------- */
+.share-dialog { max-height: 94vh; }
+.share-preview { background: #111; border-radius: 10px; padding: 8px; display: grid; place-items: center; }
+.share-preview canvas { max-width: 100%; max-height: 46vh; width: auto; height: auto; border-radius: 6px; display: block; }
+.seg { display: flex; gap: 6px; margin: 10px 0 2px; }
+.seg button { flex: 1; min-height: 36px; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 8px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.seg button.on { background: var(--primary); border-color: var(--primary); color: var(--primary-text); }
+.share-photo-row { display: flex; gap: 8px; align-items: center; }
+.share-photos { display: flex; gap: 6px; overflow-x: auto; flex: 1; padding-bottom: 2px; }
+.share-thumb { flex: none; width: 58px; height: 58px; border-radius: 8px; border: 2px solid var(--border); background: var(--bg) center / cover no-repeat; color: var(--muted); font: inherit; font-size: 11px; cursor: pointer; }
+.share-thumb.on { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary); }
+.share-bulk { display: flex; gap: 8px; margin-bottom: 8px; }
+.share-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; }
+dialog .share-fields label { display: flex; gap: 8px; align-items: center; margin: 0; padding: 5px 0; color: var(--text); font-size: 14px; }
+dialog .share-fields label.na { color: var(--muted); opacity: .6; }
+.share-fields input { accent-color: var(--primary); width: 18px; height: 18px; margin: 0; flex: none; }
+.share-dialog .dlg-actions { flex-wrap: wrap; }
+.share-dialog .dlg-actions .btn { padding: 0 12px; }

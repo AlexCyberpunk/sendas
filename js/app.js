@@ -14,6 +14,7 @@ import { showWeather } from './weather.js';
 import { savePhoto, photosOf, deletePhotosOf, deletePhoto, PhotoLayer } from './photos.js';
 import { open3D, init3D } from './view3d.js';
 import { openPanorama, initPanorama } from './panorama.js';
+import { openShare, initShare } from './shareimg.js';
 
 const TRACK_COLOR = '#d6452f';
 const SPAIN_BOUNDS = L.latLngBounds(LAYERS.mtn.bounds);
@@ -683,6 +684,7 @@ function renderDetail(w) {
     <div class="actions">
       <button class="btn small primary" data-act="follow">Seguir ruta</button>
       <button class="btn small" data-act="fit">Ver en mapa</button>
+      <button class="btn small primary" data-act="share">Compartir imagen</button>
       <button class="btn small" data-act="3d">Ver en 3D</button>
       <button class="btn small" data-act="gpx">Exportar GPX</button>
       <button class="btn small" data-act="edit">Editar</button>
@@ -737,6 +739,7 @@ $('#sheet-detail').addEventListener('click', async (e) => {
     map.fitBounds(L.latLngBounds(follower.route.pts), sheetPadding());
     toast('Siguiendo la ruta. Te avisaré si te sales.');
   }
+  if (act === 'share') openShare(w);
   if (act === '3d') {
     open3D({ layerId: currentLayerId, center: map.getCenter(), zoom: map.getZoom(), tracks: segments(w.points).map((s) => s.map((p) => [p[P.LAT], p[P.LON]])) });
   }
@@ -875,7 +878,13 @@ async function renderZones() {
     : '<li class="empty">No hay zonas descargadas.</li>';
 
   const info = await navigator.storage?.estimate?.();
-  $('#storage-info').textContent = info ? `Espacio usado por la app: ${fmt.bytes(info.usage)} de ${fmt.bytes(info.quota)} disponibles.` : '';
+  const peaksReady = !!(await caches.match('data/peaks-es.json').catch(() => null));
+  const persisted = await navigator.storage?.persisted?.().catch(() => false);
+  $('#storage-info').textContent = [
+    info ? `Espacio usado por la app: ${fmt.bytes(info.usage)} de ${fmt.bytes(info.quota)} disponibles.` : '',
+    peaksReady ? 'Picos de España (66 504 cumbres del IGN): descargados.' : 'Picos de España: se descargarán al conectarte.',
+    persisted ? '' : 'El navegador podría borrar estos datos si falta espacio.',
+  ].filter(Boolean).join(' ');
 }
 
 $('#zone-list').addEventListener('click', async (e) => {
@@ -991,6 +1000,10 @@ if ('serviceWorker' in navigator) {
 
 init3D();
 initPanorama();
+initShare();
+// Ask once per load: browsers grant persistence silently to installed or frequently used apps,
+// which protects the precached peaks and downloaded zones from eviction.
+navigator.storage?.persist?.().catch(() => {});
 updateLegend();
 renderRecorder();
 tracker.restore().then(async (restored) => {

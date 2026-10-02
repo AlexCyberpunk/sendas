@@ -93,6 +93,18 @@ async function bundledAround(lat, lon, radiusM) {
   return near.filter(({ d }) => d <= radiusM).map(({ p }) => p);
 }
 
+export async function nearestBundledPeak(lat, lon, maxM) {
+  if (!inSpainBox(lat, lon)) return null;
+  const all = await loadBundle().catch(() => null);
+  let best = null;
+  for (const p of all ?? []) {
+    if (Math.abs(p.lat - lat) > 0.02 || Math.abs(p.lon - lon) > 0.03) continue;
+    const d = haversine(lat, lon, p.lat, p.lon);
+    if (d <= maxM && (!best || d < best.d)) best = { ...p, d };
+  }
+  return best;
+}
+
 export function bboxAround(lat, lon, radiusM) {
   const dLat = radiusM / 111132;
   const dLon = radiusM / (111320 * Math.cos((lat * Math.PI) / 180));

@@ -233,6 +233,36 @@
     <div id="pano-list" class="pano-list" hidden></div>
   </section>
 
+  <dialog id="dlg-share" class="wide share-dialog">
+    <form method="dialog">
+      <h3>Compartir imagen</h3>
+      <div class="share-preview"><canvas id="share-canvas"></canvas></div>
+      <div id="share-formats" class="seg">
+        <button type="button" data-format="4:5">4:5</button>
+        <button type="button" data-format="1:1">1:1</button>
+        <button type="button" data-format="9:16">Historia 9:16</button>
+      </div>
+      <h4>Foto de fondo</h4>
+      <div class="share-photo-row">
+        <div id="share-photos" class="share-photos"></div>
+        <label class="btn small">Otra foto<input id="share-photo-input" type="file" accept="image/*" hidden></label>
+      </div>
+      <h4>Datos que se muestran</h4>
+      <div class="share-bulk">
+        <button type="button" id="share-all" class="btn small">Seleccionar todos</button>
+        <button type="button" id="share-none" class="btn small">Limpiar todos</button>
+      </div>
+      <div id="share-fields" class="share-fields"></div>
+      <p class="hint">Tu selección se recuerda para la próxima vez.</p>
+      <div class="dlg-actions">
+        <button type="button" id="share-download" class="btn">Descargar</button>
+        <span class="spacer"></span>
+        <button value="close" class="btn">Cerrar</button>
+        <button type="button" id="share-send" class="btn primary">Compartir</button>
+      </div>
+    </form>
+  </dialog>
+
   <div id="toast" class="toast" role="status" hidden></div>
 
   <script src="vendor/leaflet/leaflet.js"></script>

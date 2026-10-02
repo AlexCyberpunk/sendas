@@ -15,6 +15,7 @@ PWA para registrar paseos por la naturaleza. Sin backend ni build: HTML + JS (m�
 - **Vista 3D** del relieve con la capa base actual, trazados y pendientes.
 - **Identificador de picos**: horizonte calculado desde el MDT (40 km, con curvatura y refracción), prueba de visibilidad de cada pico, brújula del móvil, cámara y ajuste manual arrastrando. En España usa las 66 504 montañas del Nomenclátor Geográfico Básico del IGN incluidas en la app (`data/peaks-es.json`, 2,4 MB; ~0,6 MB descargados con brotli) y funciona sin conexión desde la instalación; fuera de España consulta OpenStreetMap.
 - **Zonas sin conexión** (capas IGN) con opción de incluir relieve y picos para que pendientes, 3D, altitudes y panorama funcionen sin cobertura.
+- **Imagen para compartir** de cada paseo: foto del paseo (u otra de la galería) de fondo con trazado, perfil y los datos que elijas (nombre, fecha, distancia, tiempos, desnivel, altitud, ritmo, pendiente, cumbre…), en 4:5, 1:1 o historia 9:16. La selección se recuerda entre usos; botones para seleccionar o limpiar todos.
 - Historial local (IndexedDB), exportar/compartir GPX e importar GPX.
 
 ## Ejecutar en local
