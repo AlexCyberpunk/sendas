@@ -11,7 +11,10 @@ import { daylightCheck, sunTimes } from './sun.js';
 import { toUTM, toDMS, locationText } from './sos.js';
 import { Planner } from './planner.js';
 import { showWeather } from './weather.js';
-import { savePhoto, photosOf, deletePhotosOf, deletePhoto, PhotoLayer } from './photos.js';
+import { savePhoto, photosOf, deletePhotosOf, deletePhoto, PhotoLayer, addPhotosToWalk, setPhotoPosition } from './photos.js';
+import { VoiceRecorder, saveVoice, voicesOf, deleteVoice, deleteVoicesOf } from './voice.js';
+import { Simulation } from './simulate.js';
+import { LockScreen } from './lock.js';
 import { open3D, init3D } from './view3d.js';
 import { openPanorama, initPanorama } from './panorama.js';
 import { openShare, initShare } from './shareimg.js';
@@ -115,7 +118,10 @@ function waypointMarker(wp) {
 
 function sheetPadding() {
   const sheet = $('#sheet');
-  if (sheet.hidden) return { paddingTopLeft: [30, 30], paddingBottomRight: [30, $('#recorder').offsetHeight + 40] };
+  if (sheet.hidden) {
+    const card = ['#recorder', '#planner', '#simulator'].map((sel) => $(sel)).find((el) => !el.hidden);
+    return { paddingTopLeft: [30, 30], paddingBottomRight: [30, (card?.offsetHeight ?? 0) + 40] };
+  }
   return isDesktop()
     ? { paddingTopLeft: [30, 30], paddingBottomRight: [sheet.offsetWidth + 40, 30] }
     : { paddingTopLeft: [30, 30], paddingBottomRight: [30, sheet.offsetHeight + 20] };
@@ -129,23 +135,101 @@ function openPhoto(photo) {
   if (photoUrl) URL.revokeObjectURL(photoUrl);
   photoUrl = URL.createObjectURL(photo.blob);
   $('#photo-full').src = photoUrl;
-  $('#photo-meta').textContent = `${fmt.datetime(photo.t)}${photo.lat != null ? ` · ${photo.lat.toFixed(5)}, ${photo.lon.toFixed(5)}` : ''}${photo.alt != null ? ` · ${Math.round(photo.alt)} m` : ''}`;
+  const how = { gps: 'posición de la foto', time: 'situada por la hora', manual: 'colocada a mano' }[photo.placed] ?? '';
+  $('#photo-meta').textContent = `${fmt.datetime(photo.t)}${photo.lat != null ? ` · ${photo.lat.toFixed(5)}, ${photo.lon.toFixed(5)}${how ? ` (${how})` : ''}` : ' · sin ubicar'}${photo.alt != null ? ` · ${Math.round(photo.alt)} m` : ''}`;
+  $('#photo-place').textContent = photo.lat != null ? 'Mover en el mapa' : 'Colocar en el mapa';
   $('#dlg-photo').showModal();
 }
 const livePhotos = new PhotoLayer(map, openPhoto);
 const viewPhotos = new PhotoLayer(map, openPhoto);
 
+const MIC_SVG = '<svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1a7 7 0 0 0 6-6.9z"/></svg>';
+class VoiceLayer {
+  #urls = [];
+  constructor() { this.group = L.layerGroup().addTo(map); }
+  clear() { this.group.clearLayers(); this.#urls.forEach((u) => URL.revokeObjectURL(u)); this.#urls = []; }
+  url(blob) { const u = URL.createObjectURL(blob); this.#urls.push(u); return u; }
+  add(note) {
+    if (note.lat == null) return;
+    const icon = L.divIcon({ className: 'voice-pin', html: MIC_SVG, iconSize: [26, 26] });
+    L.marker([note.lat, note.lon], { icon })
+      .bindPopup(`<b>Nota de voz</b> · ${fmt.time(note.t)} · ${fmt.duration(note.duration / 1000)}<br><audio controls preload="none" src="${this.url(note.blob)}" style="width:220px;margin-top:6px"></audio>`)
+      .addTo(this.group);
+  }
+  show(notes) { this.clear(); notes.forEach((n) => this.add(n)); }
+}
+const liveVoices = new VoiceLayer();
+const viewVoices = new VoiceLayer();
+
+const voiceRec = new VoiceRecorder();
+async function recordVoice(walkId, pos = {}) {
+  try {
+    await voiceRec.start();
+  } catch (e) {
+    toast(e?.name === 'NotAllowedError' ? 'Permiso de micrófono denegado' : e?.message || 'No se pudo grabar audio');
+    return null;
+  }
+  const dlg = $('#dlg-voice');
+  $('#voice-time').textContent = '0:00';
+  dlg.showModal();
+  const timer = setInterval(() => { $('#voice-time').textContent = fmt.duration((Date.now() - voiceRec.startedAt) / 1000); }, 250);
+  return new Promise((resolve) => {
+    let finished = false;
+    const finish = async (save, reason) => {
+      if (finished) return;
+      finished = true;
+      clearInterval(timer);
+      $('#voice-stop').removeEventListener('click', onStop);
+      $('#voice-cancel').removeEventListener('click', onCancel);
+      dlg.removeEventListener('cancel', onEsc);
+      voiceRec.removeEventListener('limit', onLimit);
+      if (dlg.open) dlg.close();
+      if (!save) { voiceRec.cancel(); resolve(null); return; }
+      const rec = await voiceRec.stop();
+      const note = await saveVoice({ walkId, ...rec, lat: pos.lat ?? null, lon: pos.lon ?? null });
+      toast(reason ?? 'Nota de voz guardada');
+      resolve(note);
+    };
+    const onStop = () => finish(true);
+    const onCancel = () => finish(false);
+    const onEsc = (e) => { e.preventDefault(); finish(false); };
+    const onLimit = () => finish(true, 'Nota guardada: has llegado al máximo de 5 minutos');
+    $('#voice-stop').addEventListener('click', onStop);
+    $('#voice-cancel').addEventListener('click', onCancel);
+    dlg.addEventListener('cancel', onEsc);
+    voiceRec.addEventListener('limit', onLimit);
+  });
+}
+
 $('#dlg-photo').addEventListener('close', () => {
   if (photoUrl) URL.revokeObjectURL(photoUrl);
   photoUrl = null;
 });
+async function refreshPhotos(walkId) {
+  if (walkId === tracker.id) livePhotos.show(await photosOf(walkId));
+  else if ($('#sheet-detail').dataset.id === walkId) openWalk(walkId, { keepView: true });
+}
+
+$('#photo-place').addEventListener('click', () => {
+  const p = openPhotoRef;
+  if (!p) return;
+  $('#dlg-photo').close();
+  toast('Toca el mapa donde hiciste la foto', 6000);
+  map.getContainer().classList.add('planning');
+  map.once('click', async (e) => {
+    map.getContainer().classList.remove('planning');
+    await setPhotoPosition(p, e.latlng.lat, e.latlng.lng, await elevationAt(e.latlng.lat, e.latlng.lng).catch(() => null));
+    toast('Foto colocada');
+    refreshPhotos(p.walkId);
+  });
+});
+
 $('#photo-delete').addEventListener('click', async () => {
   const p = openPhotoRef;
   if (!p || !confirm('¿Borrar esta foto?')) return;
   await deletePhoto(p.id);
   $('#dlg-photo').close();
-  if (p.walkId === tracker.id) livePhotos.show(await photosOf(p.walkId));
-  else if ($('#sheet-detail').dataset.id === p.walkId) openWalk(p.walkId, { keepView: true });
+  refreshPhotos(p.walkId);
   toast('Foto borrada');
 });
 
@@ -251,8 +335,8 @@ function renderRecorder() {
   $('#btn-start').hidden = st !== 'idle';
   $('#btn-pause').hidden = st !== 'recording';
   $('#btn-resume').hidden = st !== 'paused';
-  $('#btn-waypoint').hidden = st === 'idle';
-  $('#btn-photo').hidden = st === 'idle';
+  $('#btn-add').hidden = st === 'idle';
+  $('#btn-lock').hidden = st === 'idle';
   $('#btn-finish').hidden = st === 'idle';
   $('#sun-status').hidden = st === 'idle';
   document.querySelector('[data-tab=map]').classList.toggle('rec', st === 'recording');
@@ -299,7 +383,17 @@ $('#btn-start').addEventListener('click', () => {
 $('#btn-pause').addEventListener('click', () => { tracker.pause(); keepAwake(false); });
 $('#btn-resume').addEventListener('click', () => { tracker.resume(); setFollow(true); keepAwake(true); });
 
-$('#btn-waypoint').addEventListener('click', async () => {
+$('#btn-add').addEventListener('click', () => $('#dlg-add').showModal());
+
+$('#add-voice').addEventListener('click', async () => {
+  $('#dlg-add').close();
+  const c = locator.last?.coords;
+  const note = await recordVoice(tracker.id, c ? { lat: c.latitude, lon: c.longitude } : {});
+  if (note) liveVoices.add(note);
+});
+
+$('#add-waypoint').addEventListener('click', async () => {
+  $('#dlg-add').close();
   if (!locator.last) { toast('Esperando señal GPS…'); return; }
   const { action, data } = await ask($('#dlg-waypoint'));
   if (action !== 'ok') return;
@@ -311,6 +405,7 @@ $('#btn-waypoint').addEventListener('click', async () => {
 $('#photo-input').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   e.target.value = '';
+  if ($('#dlg-add').open) $('#dlg-add').close();
   if (!file) return;
   const c = locator.last?.coords;
   try {
@@ -341,7 +436,9 @@ $('#btn-finish').addEventListener('click', async () => {
   if (walk.points.length < 2) {
     if (confirm('No se ha registrado ningún recorrido. ¿Descartar el paseo?')) {
       await deletePhotosOf(walk.id);
+      await deleteVoicesOf(walk.id);
       livePhotos.clear();
+      liveVoices.clear();
       await tracker.reset();
     } else if (wasRecording) { tracker.resume(); keepAwake(true); }
     return;
@@ -356,12 +453,15 @@ $('#btn-finish').addEventListener('click', async () => {
     await db.put('walks', walk);
     await tracker.reset();
     livePhotos.clear();
+    liveVoices.clear();
     toast('Paseo guardado');
     openWalk(walk.id);
   } else if (action === 'discard') {
     if (confirm('¿Seguro? El paseo y sus fotos se borrarán.')) {
       await deletePhotosOf(walk.id);
+      await deleteVoicesOf(walk.id);
       livePhotos.clear();
+      liveVoices.clear();
       await tracker.reset();
     }
   } else if (wasRecording) {
@@ -522,6 +622,7 @@ $('#btn-peaks').addEventListener('click', () => openPanorama(() => waitForPlace(
 // ---------- Tabs & sheet ----------
 let activeTab = 'map';
 let planning = false;
+let simulating = false;
 
 function showPane(name) {
   for (const p of ['walks', 'detail', 'zones']) $(`#sheet-${p}`).hidden = p !== name;
@@ -533,8 +634,9 @@ function showTab(tab) {
   activeTab = tab;
   document.querySelectorAll('.tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
   $('#sheet').hidden = tab === 'map';
-  $('#recorder').hidden = tab !== 'map' || planning;
+  $('#recorder').hidden = tab !== 'map' || planning || simulating;
   $('#planner').hidden = tab !== 'map' || !planning;
+  $('#simulator').hidden = tab !== 'map' || !simulating;
   if (tab !== 'zones') zoneLayer.clearLayers();
   if (tab === 'walks') { viewLayer.clearLayers(); viewPhotos.clear(); viewedWalk = null; showPane('walks'); renderWalks(); }
   if (tab === 'zones') { showPane('zones'); renderZones(); }
@@ -624,21 +726,25 @@ async function openWalk(id, { keepView = false } = {}) {
     $('#sheet').hidden = false;
     $('#recorder').hidden = true;
     $('#planner').hidden = true;
+    $('#simulator').hidden = true;
     updateLegend();
   }
   viewedWalk = w;
   renderDetail(w);
   showPane('detail');
   showWalkOnMap(w, !keepView);
-  const photos = await photosOf(id);
+  const [photos, notes] = await Promise.all([photosOf(id), voicesOf(id)]);
   viewPhotos.show(photos);
   renderGallery(photos);
+  viewVoices.show(notes);
+  renderVoices(notes);
   // Walks saved offline or imported get DEM altitudes as soon as tiles are reachable.
   if (await enrichWithDem(w).catch(() => false)) {
     await db.put('walks', w);
     if ($('#sheet-detail').dataset.id === id) {
       renderDetail(w);
       renderGallery(photos);
+      renderVoices(notes);
       showWalkOnMap(w, false);
     }
   }
@@ -679,12 +785,17 @@ function renderDetail(w) {
     ${gradeLegend()}
     ${profileSVG(w.points)}
     <div id="gallery" class="gallery" hidden></div>
+    <p id="gallery-hint" class="hint" hidden></p>
+    <ul id="voice-list" class="voice-list" hidden></ul>
     ${w.notes ? `<p class="notes">${esc(w.notes)}</p>` : ''}
     ${w.waypoints?.length ? `<p class="hint">${w.waypoints.length} punto(s) marcado(s): tócalos en el mapa.</p>` : ''}
     <div class="actions">
       <button class="btn small primary" data-act="follow">Seguir ruta</button>
       <button class="btn small" data-act="fit">Ver en mapa</button>
       <button class="btn small primary" data-act="share">Compartir imagen</button>
+      <button class="btn small" data-act="simulate">Simular</button>
+      <label class="btn small">Añadir fotos<input id="addphotos-input" type="file" accept="image/*" multiple hidden></label>
+      <button class="btn small" data-act="voice">Nota de voz</button>
       <button class="btn small" data-act="3d">Ver en 3D</button>
       <button class="btn small" data-act="gpx">Exportar GPX</button>
       <button class="btn small" data-act="edit">Editar</button>
@@ -698,14 +809,66 @@ function renderGallery(photos) {
   if (!el) return;
   el.hidden = !photos.length;
   el.innerHTML = '';
+  const unplaced = photos.filter((p) => p.lat == null).length;
+  const hint = $('#gallery-hint');
+  if (hint) {
+    hint.hidden = !unplaced;
+    hint.textContent = `${unplaced} foto(s) sin ubicar (marco discontinuo): ábrelas y pulsa «Colocar en el mapa».`;
+  }
   photos.forEach((p) => {
     const img = document.createElement('img');
     img.src = viewPhotos.url(p.thumb);
     img.alt = 'Foto del paseo';
+    if (p.lat == null) img.style.outline = '3px dashed #e8a21a';
     img.addEventListener('click', () => openPhoto(p));
     el.appendChild(img);
   });
 }
+
+function renderVoices(notes) {
+  const el = $('#voice-list');
+  if (!el) return;
+  el.hidden = !notes.length;
+  el.innerHTML = '';
+  notes.forEach((n) => {
+    const li = document.createElement('li');
+    const audio = document.createElement('audio');
+    audio.controls = true;
+    audio.preload = 'metadata';
+    audio.src = viewVoices.url(n.blob);
+    const meta = document.createElement('small');
+    meta.textContent = `${fmt.time(n.t)} · ${fmt.duration(n.duration / 1000)}`;
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'del';
+    del.title = 'Borrar nota';
+    del.textContent = '✕';
+    del.addEventListener('click', async () => {
+      if (!confirm('¿Borrar esta nota de voz?')) return;
+      await deleteVoice(n.id);
+      openWalk(n.walkId, { keepView: true });
+    });
+    li.append(audio, meta, del);
+    el.appendChild(li);
+  });
+}
+
+$('#sheet-detail').addEventListener('change', async (e) => {
+  if (e.target.id !== 'addphotos-input') return;
+  const files = [...e.target.files];
+  e.target.value = '';
+  const w = viewedWalk;
+  if (!files.length || !w) return;
+  toast(`Procesando ${files.length} foto(s)…`);
+  const r = await addPhotosToWalk(files, w);
+  const parts = [];
+  if (r.gps) parts.push(`${r.gps} por GPS`);
+  if (r.time) parts.push(`${r.time} por la hora`);
+  if (r.none) parts.push(`${r.none} sin ubicar`);
+  if (r.failed) parts.push(`${r.failed} no se pudieron leer`);
+  toast(`Fotos añadidas: ${parts.join(', ')}`, 6000);
+  openWalk(w.id, { keepView: true });
+});
 
 const slug = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'paseo';
 
@@ -740,6 +903,11 @@ $('#sheet-detail').addEventListener('click', async (e) => {
     toast('Siguiendo la ruta. Te avisaré si te sales.');
   }
   if (act === 'share') openShare(w);
+  if (act === 'simulate') startSimulation(w);
+  if (act === 'voice') {
+    const note = await recordVoice(w.id);
+    if (note) openWalk(w.id, { keepView: true });
+  }
   if (act === '3d') {
     open3D({ layerId: currentLayerId, center: map.getCenter(), zoom: map.getZoom(), tracks: segments(w.points).map((s) => s.map((p) => [p[P.LAT], p[P.LON]])) });
   }
@@ -756,6 +924,7 @@ $('#sheet-detail').addEventListener('click', async (e) => {
   if (act === 'delete' && confirm(`¿Borrar «${w.name}»? No se puede deshacer.`)) {
     await db.delete('walks', id);
     await deletePhotosOf(id);
+    await deleteVoicesOf(id);
     if (follower.route?.id === id) follower.stop();
     toast('Borrado');
     showTab('walks');
@@ -857,6 +1026,129 @@ $('#pl-save').addEventListener('click', async () => {
   toast('Ruta guardada');
   openWalk(walk.id);
 });
+
+// ---------- Simulation ----------
+let sim = null;
+let simWalkId = null;
+const simMarker = L.marker([0, 0], { icon: L.divIcon({ className: 'sim-marker', iconSize: [22, 22] }), interactive: false, keyboard: false, zIndexOffset: 900 });
+const pad2 = (n) => String(n).padStart(2, '0');
+
+function departureFromInput() {
+  const [h, m] = ($('#sim-departure').value || '09:00').split(':').map(Number);
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return d.getTime();
+}
+
+function renderSim() {
+  if (!sim) return;
+  const st = sim.state;
+  const total = sim.tl.total;
+  simMarker.setLatLng([st.lat, st.lon]);
+  if (sim.playing) map.panInside([st.lat, st.lon], { padding: [40, 40] });
+  const clock = sim.clock;
+  const arrival = sim.departure + total * 1000;
+  $('#sim-clock').textContent = fmt.time(clock);
+  $('#sim-elapsed').textContent = `+${fmt.hm(sim.sec)} desde la salida · ${sim.tl.timed ? 'ritmo real del paseo' : 'tiempo MIDE'}`;
+  let sunPart = '';
+  if (window.SunCalc) {
+    const sun = sunTimes(st.lat, st.lon, new Date(clock));
+    const night = clock > sun.sunset || clock < sun.sunrise;
+    sunPart = night
+      ? ` · <span class="sim-night">De noche (ocaso ${fmt.time(sun.sunset)})</span>`
+      : arrival > sun.sunset ? ` · <span class="sim-night">Llegada tras el ocaso (${fmt.time(sun.sunset)})</span>` : ` · ocaso ${fmt.time(sun.sunset)}`;
+  }
+  $('#sim-info').innerHTML = `${fmt.distance(st.dist)} de ${fmt.distance(sim.tl.dist[sim.tl.dist.length - 1])} · ${fmt.alt(st.ele)} · llegada ${fmt.time(arrival)}${sunPart}`;
+  $('#sim-seek').value = total ? Math.round((sim.sec / total) * 1000) : 0;
+  $('#sim-play').textContent = sim.playing ? 'Pausa' : sim.sec >= total ? 'Repetir' : 'Reproducir';
+}
+
+function startSimulation(w) {
+  if (tracker.state !== 'idle') { toast('Termina el paseo en curso antes de simular'); return; }
+  if (w.points.length < 2) return;
+  sim?.destroy();
+  const saved = store.get('simDeparture');
+  if (saved) $('#sim-departure').value = saved;
+  else {
+    const d = new Date(Date.now() + 15 * 60000);
+    $('#sim-departure').value = `${pad2(d.getHours())}:${pad2(Math.floor(d.getMinutes() / 15) * 15)}`;
+  }
+  sim = new Simulation(w, departureFromInput());
+  sim.speed = +$('#sim-speed').value;
+  sim.addEventListener('update', renderSim);
+  simWalkId = w.id;
+  simulating = true;
+  showTab('map');
+  showWalkOnMap(w);
+  viewedWalk = w;
+  simMarker.addTo(map);
+  renderSim();
+}
+
+function stopSimulation() {
+  sim?.destroy();
+  sim = null;
+  simulating = false;
+  map.removeLayer(simMarker);
+  if (simWalkId) openWalk(simWalkId, { keepView: true });
+  simWalkId = null;
+}
+
+$('#sim-play').addEventListener('click', () => { if (sim) (sim.playing ? sim.pause() : sim.play()); });
+$('#sim-seek').addEventListener('input', (e) => { if (sim) sim.seek((+e.target.value / 1000) * sim.tl.total); });
+$('#sim-speed').addEventListener('change', (e) => { if (sim) sim.speed = +e.target.value; });
+$('#sim-departure').addEventListener('change', (e) => {
+  store.set('simDeparture', e.target.value);
+  if (sim) { sim.departure = departureFromInput(); renderSim(); }
+});
+$('#sim-close').addEventListener('click', stopSimulation);
+
+// ---------- Lock screen ----------
+const lockScreen = new LockScreen();
+let battery = null;
+navigator.getBattery?.().then((b) => { battery = b; }).catch(() => {});
+
+function renderLock() {
+  const now = Date.now();
+  $('#lock-clock').textContent = fmt.time(now);
+  const s = tracker.stats;
+  $('#lock-time').textContent = fmt.duration(tracker.elapsedMs / 1000);
+  $('#lock-dist').textContent = fmt.distance(s.distance);
+  $('#lock-gain').textContent = `${Math.round(s.gain)} m`;
+  const last = tracker.points[tracker.points.length - 1];
+  const c = locator.last?.coords;
+  $('#lock-alt').textContent = fmt.alt(last?.[P.DEM] ?? c?.altitude ?? last?.[P.ALT]);
+  const lat = c?.latitude ?? last?.[P.LAT];
+  const lon = c?.longitude ?? last?.[P.LON];
+  const sunEl = $('#lock-sun');
+  if (lat != null && window.SunCalc) {
+    const today = sunTimes(lat, lon, new Date(now));
+    let text;
+    let warn = false;
+    if (now < today.sunrise) text = `Amanecer en ${fmt.hm((today.sunrise - now) / 1000)} (${fmt.time(today.sunrise)})`;
+    else if (now < today.sunset) {
+      text = `Atardecer en ${fmt.hm((today.sunset - now) / 1000)} (${fmt.time(today.sunset)})`;
+      warn = today.sunset - now < 3600e3;
+    } else {
+      const next = sunTimes(lat, lon, new Date(now + 864e5));
+      text = `Amanecer en ${fmt.hm((next.sunrise - now) / 1000)} (${fmt.time(next.sunrise)})`;
+    }
+    sunEl.textContent = text;
+    sunEl.classList.toggle('warn', warn);
+  } else sunEl.textContent = '';
+  const fEl = $('#lock-follow');
+  const info = follower.active ? follower.info : null;
+  fEl.textContent = info ? (info.offRoute ? `Fuera de ruta (${Math.round(info.dist)} m)` : `Ruta: quedan ${fmt.distance(info.remaining)}`) : '';
+  fEl.classList.toggle('warn', !!info?.offRoute);
+  $('#lock-battery').textContent = battery ? `Batería ${Math.round(battery.level * 100)} %${battery.charging ? ' · cargando' : ''}` : '';
+}
+
+$('#btn-lock').addEventListener('click', () => {
+  lockScreen.lock();
+  keepAwake(true);
+  renderLock();
+});
+setInterval(() => { if (lockScreen.locked) renderLock(); }, 1000);
 
 // ---------- Offline zones ----------
 const OFFLINE_LAYERS = Object.entries(LAYERS).filter(([, d]) => d.offline);
@@ -1010,6 +1302,7 @@ tracker.restore().then(async (restored) => {
   if (restored) {
     toast('Tienes un paseo sin terminar. Pulsa Seguir o Fin.', 6000);
     livePhotos.show(await photosOf(tracker.id));
+    liveVoices.show(await voicesOf(tracker.id));
   }
 });
 const savedFollow = store.get('follow');

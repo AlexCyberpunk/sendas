@@ -1,0 +1,89 @@
+import { $ } from './ui.js';
+
+const TURNS_TO_UNLOCK = 3;
+const MIN_RADIUS = 28;
+const TOLERANCE = 0.9;
+
+// Unlock gesture: three continuous counter-clockwise circles. The angle is measured around the
+// running centroid of the stroke, which converges on the circle centre after the first turn.
+export class LockScreen extends EventTarget {
+  locked = false;
+  #pts = null;
+  #sumX = 0;
+  #sumY = 0;
+  #angle = 0;
+  #prev = null;
+
+  constructor() {
+    super();
+    const el = $('#lockscreen');
+    el.addEventListener('pointerdown', (e) => this.#start(e));
+    el.addEventListener('pointermove', (e) => this.#move(e));
+    el.addEventListener('pointerup', () => this.#reset());
+    el.addEventListener('pointercancel', () => this.#reset());
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  lock() {
+    this.locked = true;
+    $('#lockscreen').hidden = false;
+    this.#reset();
+    this.dispatchEvent(new Event('lock'));
+  }
+
+  unlock() {
+    this.locked = false;
+    $('#lockscreen').hidden = true;
+    this.#reset();
+    this.dispatchEvent(new Event('unlock'));
+  }
+
+  #start(e) {
+    e.preventDefault();
+    $('#lockscreen').setPointerCapture?.(e.pointerId);
+    this.#pts = 0;
+    this.#sumX = 0;
+    this.#sumY = 0;
+    this.#angle = 0;
+    this.#prev = null;
+    this.#add(e.clientX, e.clientY);
+  }
+
+  #move(e) {
+    if (this.#pts == null) return;
+    this.#add(e.clientX, e.clientY);
+  }
+
+  #add(x, y) {
+    this.#pts++;
+    this.#sumX += x;
+    this.#sumY += y;
+    const cx = this.#sumX / this.#pts;
+    const cy = this.#sumY / this.#pts;
+    const dx = x - cx;
+    const dy = y - cy;
+    if (Math.hypot(dx, dy) < MIN_RADIUS) return;
+    // Screen y grows downwards; flipping it makes counter-clockwise on screen a positive angle.
+    const a = Math.atan2(-dy, dx);
+    if (this.#prev != null) {
+      let d = a - this.#prev;
+      if (d > Math.PI) d -= 2 * Math.PI;
+      if (d < -Math.PI) d += 2 * Math.PI;
+      this.#angle += d;
+    }
+    this.#prev = a;
+    const turns = Math.max(0, this.#angle / (2 * Math.PI));
+    this.#progress(turns);
+    if (turns >= TURNS_TO_UNLOCK * TOLERANCE) this.unlock();
+  }
+
+  #reset() {
+    this.#pts = null;
+    this.#progress(0);
+  }
+
+  #progress(turns) {
+    const done = Math.min(TURNS_TO_UNLOCK, Math.floor(turns + 0.1));
+    document.querySelectorAll('#lock-progress i').forEach((dot, i) => dot.classList.toggle('on', i < done));
+  }
+}

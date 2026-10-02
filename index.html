@@ -60,13 +60,12 @@
       <button id="btn-resume" class="btn primary" hidden>
         <svg viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z"/></svg>Seguir
       </button>
-      <button id="btn-waypoint" class="btn" hidden>
-        <svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>Punto
+      <button id="btn-add" class="btn" hidden>
+        <svg viewBox="0 0 24 24"><path d="M11 5h2v14h-2zM5 11h14v2H5z"/></svg>Añadir
       </button>
-      <label id="btn-photo" class="btn" hidden>
-        <svg viewBox="0 0 24 24"><path d="M9 4 7.5 6H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-3.5L15 4zm3 4.5a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9z"/></svg>Foto
-        <input id="photo-input" type="file" accept="image/*" capture="environment" hidden>
-      </label>
+      <button id="btn-lock" class="btn" hidden title="Bloquear pantalla" aria-label="Bloquear pantalla">
+        <svg viewBox="0 0 24 24"><path d="M7 10V7a5 5 0 0 1 10 0v3h1a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V11a1 1 0 0 1 1-1zm2 0h6V7a3 3 0 0 0-6 0z"/></svg>
+      </button>
       <button id="btn-finish" class="btn danger" hidden>
         <svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>Fin
       </button>
@@ -86,6 +85,25 @@
       <button id="pl-snap" class="btn on" title="Ajustar a senderos">Senderos</button>
       <button id="pl-cancel" class="btn">Cancelar</button>
       <button id="pl-save" class="btn primary">Guardar</button>
+    </div>
+  </section>
+
+  <section id="simulator" class="card" hidden>
+    <div class="sim-head">
+      <div><span id="sim-clock" class="sim-clock">--:--</span><small id="sim-elapsed"></small></div>
+      <label class="sim-dep">Salida<input type="time" id="sim-departure" step="300"></label>
+    </div>
+    <div id="sim-info" class="gps-status"></div>
+    <input type="range" id="sim-seek" min="0" max="1000" value="0" aria-label="Posición en la ruta">
+    <div class="controls">
+      <button id="sim-play" class="btn primary">Reproducir</button>
+      <select id="sim-speed" class="btn" aria-label="Velocidad">
+        <option value="30">×30</option>
+        <option value="60" selected>×60</option>
+        <option value="180">×180</option>
+        <option value="600">×600</option>
+      </select>
+      <button id="sim-close" class="btn">Cerrar</button>
     </div>
   </section>
 
@@ -150,6 +168,38 @@
     </form>
   </dialog>
 
+  <dialog id="dlg-add" class="add-dialog">
+    <form method="dialog">
+      <h3>Añadir al paseo</h3>
+      <div class="add-grid">
+        <button type="button" id="add-waypoint" class="btn">
+          <svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>Punto
+        </button>
+        <label class="btn">
+          <svg viewBox="0 0 24 24"><path d="M9 4 7.5 6H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-3.5L15 4zm3 4.5a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9z"/></svg>Foto
+          <input id="photo-input" type="file" accept="image/*" capture="environment" hidden>
+        </label>
+        <button type="button" id="add-voice" class="btn">
+          <svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1a7 7 0 0 0 6-6.9z"/></svg>Nota de voz
+        </button>
+      </div>
+      <div class="dlg-actions"><span class="spacer"></span><button value="close" class="btn">Cerrar</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-voice">
+    <form method="dialog">
+      <h3>Nota de voz</h3>
+      <div class="voice-rec"><i class="rec-dot"></i><span id="voice-time">0:00</span><small>/ 5:00</small></div>
+      <p id="voice-hint" class="hint">Grabando… se detiene sola a los 5 minutos.</p>
+      <div class="dlg-actions">
+        <button type="button" id="voice-cancel" class="btn">Descartar</button>
+        <span class="spacer"></span>
+        <button type="button" id="voice-stop" class="btn primary">Parar y guardar</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="dlg-zone">
     <form method="dialog">
       <h3>Descargar zona</h3>
@@ -202,6 +252,7 @@
       <p id="photo-meta" class="hint"></p>
       <div class="dlg-actions">
         <button type="button" id="photo-delete" class="btn danger">Borrar</button>
+        <button type="button" id="photo-place" class="btn">Colocar en el mapa</button>
         <span class="spacer"></span>
         <button value="close" class="btn">Cerrar</button>
       </div>
@@ -262,6 +313,23 @@
       </div>
     </form>
   </dialog>
+
+  <section id="lockscreen" class="lockscreen" hidden>
+    <div class="lock-clock" id="lock-clock">--:--</div>
+    <div class="lock-grid">
+      <div><span id="lock-time">0:00</span><small>Tiempo</small></div>
+      <div><span id="lock-dist">0 m</span><small>Distancia</small></div>
+      <div><span id="lock-alt">—</span><small>Altitud</small></div>
+      <div><span id="lock-gain">0 m</span><small>Desnivel +</small></div>
+    </div>
+    <div class="lock-line" id="lock-sun"></div>
+    <div class="lock-line" id="lock-follow"></div>
+    <div class="lock-line dim" id="lock-battery"></div>
+    <div class="lock-hint">
+      <div id="lock-progress" class="lock-progress"><i></i><i></i><i></i></div>
+      Dibuja 3 círculos en sentido antihorario para desbloquear
+    </div>
+  </section>
 
   <div id="toast" class="toast" role="status" hidden></div>
 

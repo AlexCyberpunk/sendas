@@ -1,5 +1,5 @@
 const DB_NAME = 'sendas';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 let dbPromise;
 
 function open() {
@@ -15,6 +15,8 @@ function open() {
         const photos = ensure('photos', { keyPath: 'id' });
         if (!photos.indexNames.contains('walkId')) photos.createIndex('walkId', 'walkId');
         ensure('peaks');
+        const voice = ensure('voice', { keyPath: 'id' });
+        if (!voice.indexNames.contains('walkId')) voice.createIndex('walkId', 'walkId');
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
