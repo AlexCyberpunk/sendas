@@ -34,7 +34,7 @@ function statItems(w, fields, summit) {
   const timed = w.kind !== 'plan' && w.points.some((p) => p[P.T] > 0);
   const total = w.activeMs ? w.activeMs / 1000 : s.duration;
   const all = {
-    distance: [fmt.distance(s.distance), 'Distancia'],
+    distance: [fmt.distance(s.distance), Object.keys(s.byMode ?? {}).length ? 'A pie' : 'Distancia'],
     moving: timed && [fmt.duration(s.moving), 'En movimiento'],
     total: timed && [fmt.duration(total), 'Tiempo total'],
     mide: !timed && [fmt.hm(mideSeconds(s.distance, s.gain, s.loss)), 'Tiempo estimado'],
@@ -97,8 +97,8 @@ function drawTrack(g, points, box) {
   g.restore();
 }
 
-function drawProfile(g, points, box) {
-  const prof = elevationProfile(points);
+function drawProfile(g, points, box, modes) {
+  const prof = elevationProfile(points, modes);
   if (prof.length < 2) return;
   const total = prof[prof.length - 1][0] || 1;
   const alts = prof.map(([, a]) => a);
@@ -205,7 +205,7 @@ export function render(canvas, { walk, photo, fields, format, summit }) {
   let free = statsTop - (items.length ? 30 : 0);
   if (has('profile')) {
     const h = Math.round(H * 0.09);
-    drawProfile(g, walk.points, { x: pad, y: free - h, w: W - pad * 2, h });
+    drawProfile(g, walk.points, { x: pad, y: free - h, w: W - pad * 2, h }, walk.modes);
     free -= h + 40;
   }
   if (has('track')) {

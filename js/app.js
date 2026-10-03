@@ -2,7 +2,7 @@ import { db } from './db.js';
 import { $, esc, store, toast, ask, alertUser } from './ui.js';
 import { LAYERS, OVERLAYS } from './layers.js';
 import { Locator, Tracker } from './tracker.js';
-import { elevationProfile, segments, computeStats, toGPX, parseGPX, fmt, P, gradeChunks, gradeColor, GRADE_CLASSES, mideSeconds } from './geo.js';
+import { elevationProfile, segments, computeStats, toGPX, parseGPX, fmt, P, gradeChunks, gradeColor, GRADE_CLASSES, mideSeconds, MODES } from './geo.js';
 import { estimate, downloadZone, deleteZone, MAX_TILES, MIN_ZOOM } from './offline.js';
 import { elevationsAt, elevationAt } from './dem.js';
 import { SlopeLayer, slopeLegendHTML } from './slope.js';
@@ -15,6 +15,7 @@ import { savePhoto, photosOf, deletePhotosOf, deletePhoto, PhotoLayer, addPhotos
 import { VoiceRecorder, saveVoice, voicesOf, deleteVoice, deleteVoicesOf } from './voice.js';
 import { Simulation } from './simulate.js';
 import { LockScreen } from './lock.js';
+import { detectModes, applyMode, rangeInfo, modesSummary } from './modes.js';
 import { open3D, init3D } from './view3d.js';
 import { openPanorama, initPanorama } from './panorama.js';
 import { openShare, initShare } from './shareimg.js';
@@ -354,6 +355,7 @@ tracker.addEventListener('change', (e) => {
     const lastSeg = tracker.points.length > 1 && tracker.points[tracker.points.length - 2][P.SEG] === pt[P.SEG];
     if (multi && lastSeg) liveLine.addLatLng([pt[P.LAT], pt[P.LON]], rings[rings.length - 1]);
     else drawLiveTrack();
+    updateLiveModes();
     // DEM altitude per point: far less noisy than GPS altitude for the climb total.
     elevationAt(pt[P.LAT], pt[P.LON]).then((ele) => {
       if (ele == null) return;
@@ -425,12 +427,13 @@ async function enrichWithDem(w) {
     while (p.length <= P.DEM) p.push(null);
     p[P.DEM] = elev[i];
   });
-  w.stats = computeStats(w.points);
+  w.stats = computeStats(w.points, w.modes);
   return true;
 }
 
 $('#btn-finish').addEventListener('click', async () => {
   const wasRecording = tracker.state === 'recording';
+  updateLiveModes(true);
   const walk = tracker.finish();
   keepAwake(false);
   if (walk.points.length < 2) {
@@ -448,12 +451,16 @@ $('#btn-finish').addEventListener('click', async () => {
   const { action, data } = await ask($('#dlg-save'), { name: `Paseo ${fmt.datetime(walk.start)}`, notes: '' });
   if (action === 'save') {
     walk.name = data.name.trim() || 'Paseo';
+    walk.modes = detectModes(walk.points);
+    walk.stats = computeStats(walk.points, walk.modes);
     walk.notes = data.notes.trim();
     await enrichWithDem(walk).catch(() => false);
     await db.put('walks', walk);
     await tracker.reset();
     livePhotos.clear();
     liveVoices.clear();
+    liveModesLayer.clearLayers();
+    $('#mode-status').hidden = true;
     toast('Paseo guardado');
     openWalk(walk.id);
   } else if (action === 'discard') {
@@ -658,7 +665,7 @@ async function renderWalks() {
       <li class="clickable" data-id="${esc(w.id)}">
         <div class="main">
           <div class="title">${esc(w.name)}${isPlan(w) ? '<span class="tag">Planificada</span>' : ''}</div>
-          <div class="meta">${fmt.date(w.start)} · ${fmt.distance(w.stats.distance)} · ${time} · +${Math.round(w.stats.gain)} m</div>
+          <div class="meta">${fmt.date(w.start)} · ${fmt.distance(w.stats.distance)}${Object.entries(w.stats.byMode ?? {}).map(([m, v]) => ` + ${fmt.distance(v.distance)} ${MODES[m]?.in ?? ''}`).join('')} · ${time} · +${Math.round(w.stats.gain)} m</div>
         </div>${chevron}
       </li>`;
     }).join('')
@@ -670,8 +677,8 @@ $('#walk-list').addEventListener('click', (e) => {
   if (li) openWalk(li.dataset.id);
 });
 
-function profileSVG(points) {
-  const prof = elevationProfile(points);
+function profileSVG(points, modes) {
+  const prof = elevationProfile(points, modes);
   if (prof.length < 2) return '';
   const total = prof[prof.length - 1][0] || 1;
   let min = Infinity;
@@ -699,11 +706,12 @@ function showWalkOnMap(w, fit = true) {
   viewLayer.clearLayers();
   const rings = segments(w.points).map((s) => s.map((p) => [p[P.LAT], p[P.LON]]));
   L.polyline(rings, { color: '#ffffff', weight: 8, opacity: 0.9, interactive: false }).addTo(viewLayer);
-  for (const c of gradeChunks(w.points)) {
+  for (const c of gradeChunks(w.points, 50, w.modes)) {
     L.polyline(c.latlngs, { color: gradeColor(c.grade), weight: 5, opacity: 0.95 })
       .bindTooltip(`Pendiente ${c.grade >= 0 ? '+' : ''}${Math.round(c.grade)} %`, { sticky: true })
       .addTo(viewLayer);
   }
+  for (const r of w.modes ?? []) drawModeRange(viewLayer, w.points, r, () => editRange(w, r));
   const first = w.points[0];
   const last = w.points[w.points.length - 1];
   L.marker([first[P.LAT], first[P.LON]], { icon: dotIcon('#2e9e4f'), title: 'Inicio' }).addTo(viewLayer);
@@ -728,6 +736,12 @@ async function openWalk(id, { keepView = false } = {}) {
     $('#planner').hidden = true;
     $('#simulator').hidden = true;
     updateLegend();
+  }
+  if (w.modes === undefined && isTimed(w)) {
+    w.modes = detectModes(w.points);
+    w.stats = computeStats(w.points, w.modes);
+    await db.put('walks', w);
+    if (w.modes.length) toast(`Detectados ${w.modes.length} tramo(s) en vehículo o bici. Puedes corregirlos en «Tramos».`, 6000);
   }
   viewedWalk = w;
   renderDetail(w);
@@ -755,9 +769,10 @@ function renderDetail(w) {
   const timed = isTimed(w);
   const total = w.activeMs ? w.activeMs / 1000 : s.duration;
   const mide = mideSeconds(s.distance, s.gain, s.loss);
+  const hasModes = Object.keys(s.byMode ?? {}).length > 0;
   const cells = timed
     ? [
-      [fmt.distance(s.distance), 'Distancia'], [fmt.duration(s.moving), 'En movimiento'], [fmt.duration(total), 'Tiempo total'],
+      [fmt.distance(s.distance), hasModes ? 'A pie' : 'Distancia'], [fmt.duration(s.moving), hasModes ? 'Andando' : 'En movimiento'], [fmt.duration(total), 'Tiempo total'],
       [`+${Math.round(s.gain)} m`, 'Subida'], [`−${Math.round(s.loss)} m`, 'Bajada'], [fmt.pace(s.distance, s.moving), 'Ritmo medio'],
     ]
     : [
@@ -780,10 +795,11 @@ function renderDetail(w) {
     </header>
     <h2 style="margin:0 0 2px;font-size:20px">${esc(w.name)}${isPlan(w) ? '<span class="tag">Planificada</span>' : ''}</h2>
     <p class="hint">${fmt.datetime(w.start)}${w.imported ? ' · importado' : ''} · Altitud: ${s.source === 'dem' ? 'modelo del terreno' : 'GPS'}</p>
+    ${hasModes ? `<p class="modes-line">${esc(modesSummary(s))}. Ritmo, desnivel y tiempo andando cuentan solo lo hecho a pie.</p>` : ''}
     <div class="detail-stats">${cells.map(([v, l]) => `<div><span>${v}</span><small>${l}</small></div>`).join('')}</div>
     ${sunNote}
     ${gradeLegend()}
-    ${profileSVG(w.points)}
+    ${profileSVG(w.points, w.modes)}
     <div id="gallery" class="gallery" hidden></div>
     <p id="gallery-hint" class="hint" hidden></p>
     <ul id="voice-list" class="voice-list" hidden></ul>
@@ -794,6 +810,7 @@ function renderDetail(w) {
       <button class="btn small" data-act="fit">Ver en mapa</button>
       <button class="btn small primary" data-act="share">Compartir imagen</button>
       <button class="btn small" data-act="simulate">Simular</button>
+      ${timed ? '<button class="btn small" data-act="modes">Tramos</button>' : ''}
       <label class="btn small">Añadir fotos<input id="addphotos-input" type="file" accept="image/*" multiple hidden></label>
       <button class="btn small" data-act="voice">Nota de voz</button>
       <button class="btn small" data-act="3d">Ver en 3D</button>
@@ -904,6 +921,7 @@ $('#sheet-detail').addEventListener('click', async (e) => {
   }
   if (act === 'share') openShare(w);
   if (act === 'simulate') startSimulation(w);
+  if (act === 'modes') startModeEdit(w);
   if (act === 'voice') {
     const note = await recordVoice(w.id);
     if (note) openWalk(w.id, { keepView: true });
@@ -937,6 +955,7 @@ $('#gpx-input').addEventListener('change', async (e) => {
   if (!file) return;
   try {
     const { name, points, waypoints, timed } = parseGPX(await file.text());
+    const modes = timed ? detectModes(points) : [];
     const walk = {
       id: crypto.randomUUID(),
       name,
@@ -945,7 +964,8 @@ $('#gpx-input').addEventListener('change', async (e) => {
       end: timed ? points[points.length - 1][P.T] : Date.now(),
       points,
       waypoints,
-      stats: computeStats(points),
+      modes,
+      stats: computeStats(points, modes),
       imported: true,
       ...(timed ? {} : { kind: 'plan' }),
     };
@@ -1026,6 +1046,142 @@ $('#pl-save').addEventListener('click', async () => {
   toast('Ruta guardada');
   openWalk(walk.id);
 });
+
+// ---------- Transport modes ----------
+const MODE_STYLE = {
+  bike: { color: '#1e88e5', dashArray: '2 9', weight: 6 },
+  car: { color: '#455a64', dashArray: '10 8', weight: 5 },
+  bus: { color: '#6d4c41', dashArray: '10 8', weight: 5 },
+  vehicle: { color: '#546e7a', dashArray: '10 8', weight: 5 },
+};
+
+function drawModeRange(layer, points, r, onClick) {
+  const latlngs = points.slice(r.from, r.to + 1).map((p) => [p[P.LAT], p[P.LON]]);
+  if (latlngs.length < 2) return;
+  const st = MODE_STYLE[r.mode] ?? MODE_STYLE.vehicle;
+  const line = L.polyline(latlngs, { ...st, opacity: 0.95, lineCap: 'butt' }).addTo(layer);
+  const info = rangeInfo(points, r);
+  const mid = latlngs[Math.floor(latlngs.length / 2)];
+  const label = `${MODES[r.mode]?.label ?? r.mode} · ${fmt.distance(info.distance)}`;
+  const marker = L.marker(mid, { icon: L.divIcon({ className: 'mode-label', html: `<span style="border-color:${st.color}">${esc(label)}</span>`, iconSize: null }), keyboard: false }).addTo(layer);
+  if (onClick) {
+    const h = (e) => { L.DomEvent.stop(e); onClick(); };
+    line.on('click', h);
+    marker.on('click', h);
+  }
+}
+
+function chooseMode(title, info, current) {
+  $('#mode-title').textContent = title;
+  $('#mode-info').textContent = info;
+  document.querySelectorAll('#dlg-mode [data-mode]').forEach((b) => b.classList.toggle('on', b.value === current));
+  return ask($('#dlg-mode')).then(({ action }) => action || null);
+}
+
+async function saveModes(w, modes) {
+  w.modes = modes;
+  w.stats = computeStats(w.points, modes);
+  await db.put('walks', w);
+  openWalk(w.id, { keepView: true });
+}
+
+const rangeText = (points, r) => {
+  const i = rangeInfo(points, r);
+  return `${fmt.distance(i.distance)}${i.start ? ` · ${fmt.time(i.start)}–${fmt.time(i.end)}` : ''}${i.speedKmh != null ? ` · media ${Math.round(i.speedKmh)} km/h` : ''}`;
+};
+
+async function editRange(w, r) {
+  const choice = await chooseMode(`Tramo ${(MODES[r.mode]?.in ?? '').replace(/^en /, 'en ')}`, rangeText(w.points, r), r.mode);
+  if (!choice) return;
+  if (choice === 'redetect') return saveModes(w, detectModes(w.points));
+  saveModes(w, applyMode(w.modes, r.from, r.to, choice));
+}
+
+let modeEdit = null;
+function nearestIndex(points, latlng, maxPx = 40) {
+  const target = map.latLngToContainerPoint(latlng);
+  let best = -1;
+  let bestD = Infinity;
+  points.forEach((p, i) => {
+    const d = map.latLngToContainerPoint([p[P.LAT], p[P.LON]]).distanceTo(target);
+    if (d < bestD) { bestD = d; best = i; }
+  });
+  return bestD <= maxPx ? best : -1;
+}
+
+function stopModeEdit() {
+  if (!modeEdit) return;
+  map.off('click', onModeEditClick);
+  modeEdit.marker?.remove();
+  map.getContainer().classList.remove('planning');
+  $('#mode-bar').hidden = true;
+  modeEdit = null;
+}
+
+async function onModeEditClick(e) {
+  const { w } = modeEdit;
+  const idx = nearestIndex(w.points, e.latlng);
+  if (idx < 0) { toast('Toca más cerca del trazado'); return; }
+  if (modeEdit.start == null) {
+    modeEdit.start = idx;
+    modeEdit.marker = L.circleMarker([w.points[idx][P.LAT], w.points[idx][P.LON]], { radius: 9, color: '#fff', weight: 3, fillColor: '#ff6f00', fillOpacity: 1 }).addTo(map);
+    $('#mode-bar-text').textContent = 'Ahora toca el final del tramo';
+    return;
+  }
+  const from = Math.min(modeEdit.start, idx);
+  const to = Math.max(modeEdit.start, idx);
+  stopModeEdit();
+  if (to - from < 1) { toast('El tramo es demasiado corto'); return; }
+  const choice = await chooseMode('Marcar tramo como…', rangeText(w.points, { from, to }), null);
+  if (!choice) return;
+  if (choice === 'redetect') return saveModes(w, detectModes(w.points));
+  saveModes(w, applyMode(w.modes, from, to, choice));
+}
+
+function startModeEdit(w) {
+  stopModeEdit();
+  modeEdit = { w, start: null, marker: null };
+  $('#mode-bar-text').textContent = 'Toca en el trazado el inicio del tramo';
+  $('#mode-bar').hidden = false;
+  map.getContainer().classList.add('planning');
+  map.on('click', onModeEditClick);
+  toast('Marca inicio y final en el mapa. Para cambiar un tramo ya marcado, tócalo.', 5000);
+}
+$('#mode-bar-cancel').addEventListener('click', stopModeEdit);
+$('#mode-bar-redetect').addEventListener('click', async () => {
+  const w = modeEdit?.w;
+  stopModeEdit();
+  if (w) { await saveModes(w, detectModes(w.points)); toast('Tramos detectados de nuevo'); }
+});
+
+// Live: re-run detection every 15 s while recording so the totals on foot stay clean.
+const liveModesLayer = L.layerGroup().addTo(map);
+let liveMode = 'walk';
+let lastModeCheck = 0;
+function updateLiveModes(force = false) {
+  if (!force && Date.now() - lastModeCheck < 15000) return;
+  lastModeCheck = Date.now();
+  const pts = tracker.points;
+  tracker.modes = detectModes(pts);
+  liveModesLayer.clearLayers();
+  tracker.modes.forEach((r) => drawModeRange(liveModesLayer, pts, r, null));
+  const tail = tracker.modes.find((r) => r.to >= pts.length - 3);
+  const now = tail?.mode ?? 'walk';
+  const el = $('#mode-status');
+  if (now !== 'walk') {
+    const info = rangeInfo(pts, tail);
+    el.textContent = `${MODES[now].label} detectado (${Math.round(info.speedKmh ?? 0)} km/h): ${fmt.distance(info.distance)} que no cuentan como a pie`;
+  } else {
+    const other = Object.entries(tracker.stats.byMode ?? {}).map(([m, v]) => `${fmt.distance(v.distance)} ${MODES[m]?.in ?? ''}`).join(' · ');
+    el.textContent = other ? `Fuera del total a pie: ${other}` : '';
+  }
+  el.hidden = !el.textContent;
+  if (now !== liveMode && tracker.state === 'recording') {
+    toast(now === 'walk' ? 'De nuevo a pie' : `Parece que vas ${MODES[now].in}: esos km no cuentan como andados`, 5000);
+  }
+  liveMode = now;
+  renderStats();
+}
 
 // ---------- Simulation ----------
 let sim = null;
@@ -1300,6 +1456,7 @@ updateLegend();
 renderRecorder();
 tracker.restore().then(async (restored) => {
   if (restored) {
+    updateLiveModes(true);
     toast('Tienes un paseo sin terminar. Pulsa Seguir o Fin.', 6000);
     livePhotos.show(await photosOf(tracker.id));
     liveVoices.show(await voicesOf(tracker.id));

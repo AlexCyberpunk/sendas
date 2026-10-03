@@ -338,3 +338,13 @@ dialog .share-fields label.na { color: var(--muted); opacity: .6; }
 .lock-colors { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 18px); left: 0; right: 0; display: flex; justify-content: center; gap: 14px; }
 .lock-colors button { width: 30px; height: 30px; border-radius: 50%; border: 2px solid #000; box-shadow: 0 0 0 2px #333; cursor: pointer; padding: 0; }
 .lock-colors button.on { box-shadow: 0 0 0 3px #000, 0 0 0 5px var(--lock-fg); }
+
+/* ---------- transport modes ---------- */
+.mode-label span { display: inline-block; transform: translate(-50%, -50%); white-space: nowrap; background: var(--surface); color: var(--text); border: 2px solid; border-radius: 999px; padding: 2px 8px; font-size: 12px; font-weight: 700; box-shadow: 0 1px 4px rgba(0,0,0,.35); cursor: pointer; }
+.mode-label { width: 0 !important; height: 0 !important; }
+.modes-line { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid #546e7a; border-radius: 8px; padding: 8px 10px; font-size: 13px; margin: 0 0 12px; }
+.mode-status { color: #455a64; font-weight: 600; }
+@media (prefers-color-scheme: dark) { .mode-status { color: #b0bec5; } }
+.mode-bar { border-left-color: #ff6f00; }
+.mode-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 8px; }
+.mode-grid .btn.on { border-color: var(--primary); color: var(--primary); box-shadow: 0 0 0 2px var(--primary) inset; }

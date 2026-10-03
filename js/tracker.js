@@ -66,7 +66,9 @@ export class Tracker extends EventTarget {
     return this.activeMs + (this.state === 'recording' ? Date.now() - this.resumedAt : 0);
   }
 
-  get stats() { return computeStats(this.points); }
+  modes = [];
+
+  get stats() { return computeStats(this.points, this.modes); }
 
   async restore() {
     const cur = await db.get('state', 'current');
@@ -78,7 +80,7 @@ export class Tracker extends EventTarget {
   }
 
   start() {
-    Object.assign(this, { id: crypto.randomUUID(), points: [], waypoints: [], seg: 0, startedAt: Date.now(), activeMs: 0 });
+    Object.assign(this, { id: crypto.randomUUID(), points: [], waypoints: [], seg: 0, startedAt: Date.now(), activeMs: 0, modes: [] });
     this.resume();
   }
 
@@ -110,13 +112,14 @@ export class Tracker extends EventTarget {
       activeMs: this.activeMs,
       points: this.points,
       waypoints: this.waypoints,
-      stats: computeStats(this.points),
+      stats: computeStats(this.points, this.modes),
+      modes: this.modes,
     };
     return walk;
   }
 
   async reset() {
-    Object.assign(this, { state: 'idle', id: null, points: [], waypoints: [], seg: 0, startedAt: null, activeMs: 0, resumedAt: null });
+    Object.assign(this, { state: 'idle', id: null, points: [], waypoints: [], seg: 0, startedAt: null, activeMs: 0, resumedAt: null, modes: [] });
     await db.delete('state', 'current');
     this.#emit();
   }

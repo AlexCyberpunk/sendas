@@ -22,19 +22,44 @@ const MOVING_SPEED = 0.3;
 const usesDem = (points) => points.length > 0 && points.filter((p) => p[P.DEM] != null).length >= points.length * 0.8;
 export const elevationOf = (p, dem) => (dem ? p[P.DEM] ?? p[P.ALT] : p[P.ALT]);
 
-export function computeStats(points) {
-  const s = { distance: 0, duration: 0, moving: 0, gain: 0, loss: 0, maxAlt: null, minAlt: null, maxGrade: 0, source: 'gps' };
+// Transport modes for stretches of a walk. Stored on the walk as ranges of point indices
+// {from, to, mode}; a range covers the pairs (from, from+1) … (to-1, to). Uncovered pairs are on foot.
+export const MODES = {
+  walk: { label: 'A pie', in: 'a pie' },
+  bike: { label: 'Bici', in: 'en bici' },
+  car: { label: 'Coche', in: 'en coche' },
+  bus: { label: 'Autobús', in: 'en autobús' },
+  vehicle: { label: 'Vehículo', in: 'en vehículo' },
+};
+
+// pm[i] is the mode of the pair (i-1, i); pm[0] mirrors pm[1].
+export function pairModes(n, modes = []) {
+  const pm = new Array(n).fill('walk');
+  for (const r of modes ?? []) {
+    for (let i = Math.max(1, r.from + 1); i <= Math.min(n - 1, r.to); i++) pm[i] = r.mode;
+  }
+  if (n > 1) pm[0] = pm[1];
+  return pm;
+}
+
+const onFootPoint = (pm, i) => pm[i] === 'walk' || pm[i + 1] === 'walk';
+
+export function computeStats(points, modes = []) {
+  const s = { distance: 0, duration: 0, moving: 0, gain: 0, loss: 0, maxAlt: null, minAlt: null, maxGrade: 0, source: 'gps', byMode: {} };
   if (!points.length) return s;
   const dem = usesDem(points);
   s.source = dem ? 'dem' : 'gps';
   // Hysteresis: GPS altitude jitters by metres, DEM interpolation much less.
   const threshold = dem ? 2 : 5;
+  const pm = pairModes(points.length, modes);
 
+  // Distance, moving time, pace and climb only count stretches on foot; vehicles go to byMode.
   let ref = null;
   for (let i = 0; i < points.length; i++) {
     const p = points[i];
     const alt = elevationOf(p, dem);
-    if (alt != null) {
+    if (!onFootPoint(pm, i)) ref = null;
+    else if (alt != null) {
       s.maxAlt = s.maxAlt == null ? alt : Math.max(s.maxAlt, alt);
       s.minAlt = s.minAlt == null ? alt : Math.min(s.minAlt, alt);
       if (ref == null) ref = alt;
@@ -45,14 +70,18 @@ export function computeStats(points) {
     const q = points[i - 1];
     if (p[P.SEG] !== q[P.SEG]) continue;
     const d = haversine(q[P.LAT], q[P.LON], p[P.LAT], p[P.LON]);
-    s.distance += d;
     const dt = (p[P.T] - q[P.T]) / 1000;
-    if (dt > 0) {
-      s.duration += dt;
-      if (d / dt >= MOVING_SPEED) s.moving += dt;
+    if (dt > 0) s.duration += dt;
+    if (pm[i] === 'walk') {
+      s.distance += d;
+      if (dt > 0 && d / dt >= MOVING_SPEED) s.moving += dt;
+    } else {
+      const m = (s.byMode[pm[i]] ??= { distance: 0, duration: 0 });
+      m.distance += d;
+      if (dt > 0) m.duration += dt;
     }
   }
-  for (const c of gradeChunks(points)) s.maxGrade = Math.max(s.maxGrade, Math.abs(c.grade));
+  for (const c of gradeChunks(points, 50, modes)) s.maxGrade = Math.max(s.maxGrade, Math.abs(c.grade));
   return s;
 }
 
@@ -67,26 +96,42 @@ export function segments(points) {
   return segs;
 }
 
-export function elevationProfile(points) {
+// Runs of consecutive points on foot (split at pauses and at vehicle stretches).
+export function footRuns(points, modes = []) {
+  const pm = pairModes(points.length, modes);
+  const runs = [];
+  let cur = points.length ? [points[0]] : [];
+  for (let i = 1; i < points.length; i++) {
+    if (points[i][P.SEG] !== points[i - 1][P.SEG] || pm[i] !== 'walk') {
+      if (cur.length > 1) runs.push(cur);
+      cur = [points[i]];
+    } else cur.push(points[i]);
+  }
+  if (cur.length > 1) runs.push(cur);
+  return runs;
+}
+
+export function elevationProfile(points, modes = []) {
   const dem = usesDem(points);
+  const pm = pairModes(points.length, modes);
   const out = [];
   let dist = 0;
   for (let i = 0; i < points.length; i++) {
     const p = points[i];
-    if (i > 0 && points[i - 1][P.SEG] === p[P.SEG]) {
+    if (i > 0 && points[i - 1][P.SEG] === p[P.SEG] && pm[i] === 'walk') {
       dist += haversine(points[i - 1][P.LAT], points[i - 1][P.LON], p[P.LAT], p[P.LON]);
     }
     const alt = elevationOf(p, dem);
-    if (alt != null) out.push([dist, alt]);
+    if (alt != null && onFootPoint(pm, i)) out.push([dist, alt]);
   }
   return out;
 }
 
-// Splits a track into chunks of at least minLen metres with their mean grade in %.
-export function gradeChunks(points, minLen = 50) {
+// Splits the parts on foot into chunks of at least minLen metres with their mean grade in %.
+export function gradeChunks(points, minLen = 50, modes = []) {
   const dem = usesDem(points);
   const chunks = [];
-  for (const seg of segments(points)) {
+  for (const seg of footRuns(points, modes)) {
     let start = 0;
     let len = 0;
     for (let i = 1; i < seg.length; i++) {

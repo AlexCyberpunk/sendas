@@ -32,6 +32,12 @@
   <div id="offline-badge" class="badge" hidden>Sin conexión</div>
   <div id="map-legend" class="legend" hidden></div>
 
+  <div id="mode-bar" class="follow-bar mode-bar" hidden>
+    <div class="main"><div class="title" id="mode-bar-text"></div></div>
+    <button id="mode-bar-redetect" class="btn small" title="Volver a detectar todos los tramos">Detectar</button>
+    <button id="mode-bar-cancel" class="btn small">Cancelar</button>
+  </div>
+
   <div id="follow-bar" class="follow-bar" hidden>
     <div class="main">
       <div class="title" id="follow-name"></div>
@@ -50,6 +56,7 @@
     </div>
     <div id="gps-status" class="gps-status"></div>
     <div id="sun-status" class="gps-status" hidden></div>
+    <div id="mode-status" class="gps-status mode-status" hidden></div>
     <div class="controls">
       <button id="btn-start" class="btn primary big">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/></svg>Iniciar paseo
@@ -196,6 +203,25 @@
         <button type="button" id="voice-cancel" class="btn">Descartar</button>
         <span class="spacer"></span>
         <button type="button" id="voice-stop" class="btn primary">Parar y guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-mode">
+    <form method="dialog">
+      <h3 id="mode-title">Tramo</h3>
+      <p id="mode-info" class="hint"></p>
+      <div class="mode-grid">
+        <button value="walk" data-mode class="btn">A pie</button>
+        <button value="bike" data-mode class="btn">Bici</button>
+        <button value="car" data-mode class="btn">Coche</button>
+        <button value="bus" data-mode class="btn">Autobús</button>
+        <button value="vehicle" data-mode class="btn">Vehículo</button>
+      </div>
+      <div class="dlg-actions">
+        <button value="redetect" class="btn small">Volver a detectar todo</button>
+        <span class="spacer"></span>
+        <button value="" class="btn">Cancelar</button>
       </div>
     </form>
   </dialog>

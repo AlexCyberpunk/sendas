@@ -1,4 +1,4 @@
-const SHELL = 'shell-v9';
+const SHELL = 'shell-v10';
 const ASSETS = [
   './',
   'index.html',
@@ -27,6 +27,7 @@ const ASSETS = [
   'js/voice.js',
   'js/simulate.js',
   'js/lock.js',
+  'js/modes.js',
   'data/peaks-es.json',
   'vendor/suncalc/suncalc.js',
   'vendor/maplibre/maplibre-gl.js',
