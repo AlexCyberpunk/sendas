@@ -1,4 +1,4 @@
-const SHELL = 'shell-v11';
+const SHELL = 'shell-v12';
 const ASSETS = [
   './',
   'index.html',
@@ -30,6 +30,8 @@ const ASSETS = [
   'js/modes.js',
   'js/gaps.js',
   'js/prefs.js',
+  'js/catalog.js',
+  'data/routes-es.json',
   'data/peaks-es.json',
   'vendor/suncalc/suncalc.js',
   'vendor/maplibre/maplibre-gl.js',

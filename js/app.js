@@ -19,6 +19,7 @@ import { detectModes, applyMode, rangeInfo, modesSummary } from './modes.js';
 import { fillGaps, gapsSummary } from './gaps.js';
 import { allProfiles, activeId, activeProfile, setActive, editActive, saveAs, remove as removeProfile, cssFilter, TRACK_COLORS } from './prefs.js';
 import { tileUrl } from './layers.js';
+import { TYPES as ROUTE_TYPES, routesNear, fetchRoute, toWalk, looksKidFriendly } from './catalog.js';
 import { open3D, init3D } from './view3d.js';
 import { openPanorama, initPanorama } from './panorama.js';
 import { openShare, initShare } from './shareimg.js';
@@ -652,7 +653,7 @@ let planning = false;
 let simulating = false;
 
 function showPane(name) {
-  for (const p of ['walks', 'detail', 'zones', 'options']) $(`#sheet-${p}`).hidden = p !== name;
+  for (const p of ['walks', 'detail', 'zones', 'options', 'catalog']) $(`#sheet-${p}`).hidden = p !== name;
   $('#sheet').classList.toggle('compact', name === 'detail');
   $('#sheet').scrollTop = 0;
 }
@@ -665,6 +666,7 @@ function showTab(tab) {
   $('#planner').hidden = tab !== 'map' || !planning;
   $('#simulator').hidden = tab !== 'map' || !simulating;
   if (tab !== 'zones') zoneLayer.clearLayers();
+  catalogLayer.clearLayers();
   if (tab === 'walks') { viewLayer.clearLayers(); viewPhotos.clear(); viewedWalk = null; showPane('walks'); renderWalks(); }
   if (tab === 'zones') { showPane('zones'); renderZones(); }
   if (tab === 'options') { showPane('options'); renderOptions(); }
@@ -1465,6 +1467,126 @@ $('#profile-save-as').addEventListener('click', () => {
   saveAs(name.trim().slice(0, 40));
   renderOptions();
   toast('Perfil guardado');
+});
+
+// ---------- Official routes catalogue ----------
+const catalogLayer = L.layerGroup().addTo(map);
+let catalogFilter = store.get('catalogFilter') ?? 'all';
+let catalogItems = [];
+let catalogCurrent = null;
+
+function openCatalog() {
+  showTab('walks');
+  viewedWalk = null;
+  showPane('catalog');
+  $('#catalog-preview').hidden = true;
+  renderCatalog();
+}
+
+async function renderCatalog() {
+  const h = here();
+  const radius = +$('#catalog-radius').value;
+  $('#catalog-where').textContent = h.fromMap ? 'Alrededor del centro del mapa (mueve el mapa para buscar en otra zona).' : 'Alrededor de tu posición.';
+  document.querySelectorAll('#catalog-filters [data-filter]').forEach((b) => b.classList.toggle('on', b.dataset.filter === catalogFilter));
+  const list = $('#catalog-list');
+  list.innerHTML = '<li class="empty">Buscando rutas…</li>';
+  try {
+    catalogItems = await routesNear(h.lat, h.lon, radius, catalogFilter);
+  } catch {
+    list.innerHTML = '<li class="empty">No se pudo cargar el índice de rutas.</li>';
+    return;
+  }
+  catalogLayer.clearLayers();
+  catalogItems.forEach((r, k) => {
+    L.circleMarker(r.pts[1], { radius: 7, color: '#fff', weight: 2, fillColor: ROUTE_TYPES[r.type].color, fillOpacity: 1 })
+      .bindTooltip(r.name)
+      .on('click', () => previewRoute(k))
+      .addTo(catalogLayer);
+  });
+  list.innerHTML = catalogItems.length
+    ? catalogItems.map((r, k) => `
+      <li class="clickable" data-k="${k}">
+        <span class="route-badge" style="background:${ROUTE_TYPES[r.type].color}">${esc(ROUTE_TYPES[r.type].label)}</span>
+        <div class="main">
+          <div class="title">${esc(r.name)}</div>
+          <div class="meta">${r.km != null ? `${r.km} km · ` : ''}a ${fmt.distance(r.dist)}${r.extra ? ` · ${esc(r.extra.replace(/\|/g, ' · '))}` : ''}${looksKidFriendly(r) ? ' · apta para niños' : ''}</div>
+        </div>${chevron}
+      </li>`).join('')
+    : `<li class="empty">No hay rutas oficiales de este tipo a menos de ${radius} km. Amplía el radio o mueve el mapa.</li>`;
+}
+
+async function previewRoute(k) {
+  const r = catalogItems[k];
+  if (!r) return;
+  const box = $('#catalog-preview');
+  box.hidden = false;
+  box.innerHTML = `<p class="hint">Descargando «${esc(r.name)}»…</p>`;
+  $('#sheet').scrollTop = 0;
+  let data;
+  try {
+    data = await fetchRoute(r);
+  } catch {
+    box.innerHTML = '<p class="hint">No se pudo descargar el trazado (¿sin conexión?).</p>';
+    return;
+  }
+  catalogCurrent = { r, data };
+  viewLayer.clearLayers();
+  const latlngs = data.points.map((p) => [p[P.LAT], p[P.LON]]);
+  L.polyline(latlngs, { color: '#fff', weight: 8, opacity: 0.9, interactive: false }).addTo(viewLayer);
+  L.polyline(latlngs, { color: ROUTE_TYPES[r.type].color, weight: 5 }).addTo(viewLayer);
+  L.marker(latlngs[0], { icon: dotIcon('#2e9e4f'), title: 'Inicio' }).addTo(viewLayer);
+  map.fitBounds(viewLayer.getBounds(), { ...sheetPadding(), maxZoom: 15 });
+  const s = data.stats;
+  box.innerHTML = `
+    <div class="cat-head"><span class="route-badge" style="background:${ROUTE_TYPES[r.type].color}">${esc(ROUTE_TYPES[r.type].label)}</span><b>${esc(r.name)}</b></div>
+    ${data.recorrido ? `<p class="hint">${esc(data.recorrido)}</p>` : ''}
+    <div class="detail-stats">
+      <div><span>${fmt.distance(s.distance)}</span><small>Distancia</small></div>
+      <div><span>+${Math.round(s.gain)} m</span><small>Subida</small></div>
+      <div><span>~${fmt.hm(data.mide)}</span><small>Tiempo MIDE</small></div>
+    </div>
+    <p class="kids-line ${data.kids ? 'ok' : 'hard'}">${data.kids
+      ? (r.type === 'VV' ? 'Apta para niños: vía verde, llana y sin coches.' : `Apta para niños: corta y con poco desnivel (+${Math.round(s.gain)} m).`)
+      : `Exigente para niños: ${fmt.distance(s.distance)} y +${Math.round(s.gain)} m de subida.`}</p>
+    <div class="actions">
+      <button class="btn small primary" data-cat="save">Guardar en mis rutas</button>
+      <button class="btn small" data-cat="follow">Seguir ahora</button>
+      ${data.infoUrl ? '<button class="btn small" data-cat="info">Ficha oficial</button>' : ''}
+      <button class="btn small" data-cat="close">Cerrar</button>
+    </div>`;
+}
+
+$('#btn-catalog').addEventListener('click', openCatalog);
+$('#catalog-back').addEventListener('click', () => showTab('walks'));
+$('#catalog-radius').addEventListener('change', renderCatalog);
+$('#catalog-filters').addEventListener('click', (e) => {
+  const f = e.target.closest('[data-filter]')?.dataset.filter;
+  if (!f) return;
+  catalogFilter = f;
+  store.set('catalogFilter', f);
+  $('#catalog-preview').hidden = true;
+  viewLayer.clearLayers();
+  renderCatalog();
+});
+$('#catalog-list').addEventListener('click', (e) => {
+  const li = e.target.closest('li[data-k]');
+  if (li) previewRoute(+li.dataset.k);
+});
+$('#catalog-preview').addEventListener('click', async (e) => {
+  const act = e.target.closest('[data-cat]')?.dataset.cat;
+  if (!act || !catalogCurrent) return;
+  const { r, data } = catalogCurrent;
+  if (act === 'close') { $('#catalog-preview').hidden = true; viewLayer.clearLayers(); return; }
+  if (act === 'info') { window.open(data.infoUrl, '_blank', 'noopener'); return; }
+  const walk = toWalk(r, data);
+  await db.put('walks', walk);
+  if (act === 'save') { toast('Ruta guardada en tus paseos'); openWalk(walk.id); }
+  if (act === 'follow') {
+    startFollowing(walk);
+    showTab('map');
+    map.fitBounds(L.latLngBounds(follower.route.pts), sheetPadding());
+    toast('Siguiendo la ruta. Te avisaré si te sales.');
+  }
 });
 
 // ---------- Offline zones ----------

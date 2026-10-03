@@ -366,3 +366,17 @@ dialog .share-fields label.na { color: var(--muted); opacity: .6; }
 .track-colors button.on { box-shadow: 0 0 0 3px var(--primary); }
 .gaps-line { border-left-color: #ff9800; }
 .gaps-line .btn { margin-top: 6px; }
+
+/* ---------- official routes catalogue ---------- */
+.cat-title { margin: 0 0 2px; font-size: 18px; }
+.chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 8px; }
+.chips button { flex: none; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.chips button.on { background: var(--primary); border-color: var(--primary); color: var(--primary-text); }
+.route-badge { flex: none; color: #fff; font-size: 11px; font-weight: 800; border-radius: 6px; padding: 3px 6px; white-space: nowrap; }
+.cat-preview { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px; margin-bottom: 10px; }
+.cat-head { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+.kids-line { font-size: 14px; font-weight: 600; margin: 0 0 10px; }
+.kids-line.ok { color: #2e7d32; }
+.kids-line.hard { color: var(--danger); }
+.cat-source { margin-top: 10px; }
+#catalog-radius { min-height: 34px; }

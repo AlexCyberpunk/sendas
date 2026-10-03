@@ -119,6 +119,7 @@
       <header class="pane-head">
         <h2>Mis paseos</h2>
         <div class="head-actions">
+          <button id="btn-catalog" class="btn small">Rutas</button>
           <button id="btn-plan" class="btn small primary">Planificar</button>
           <label class="btn small">GPX<input id="gpx-input" type="file" accept=".gpx,application/gpx+xml" hidden></label>
         </div>
@@ -126,6 +127,31 @@
       <ul id="walk-list" class="list"></ul>
     </div>
     <div id="sheet-detail" class="pane" hidden></div>
+    <div id="sheet-catalog" class="pane" hidden>
+      <header class="pane-head">
+        <button class="back" id="catalog-back">‹ Paseos</button>
+        <select id="catalog-radius" class="btn small" aria-label="Radio de búsqueda">
+          <option value="10">10 km</option>
+          <option value="25" selected>25 km</option>
+          <option value="50">50 km</option>
+          <option value="100">100 km</option>
+        </select>
+      </header>
+      <h2 class="cat-title">Rutas oficiales cerca</h2>
+      <p id="catalog-where" class="hint"></p>
+      <div id="catalog-filters" class="chips">
+        <button data-filter="all">Todas</button>
+        <button data-filter="kids">Con niños</button>
+        <button data-filter="VV">Vías verdes</button>
+        <button data-filter="SL">SL</button>
+        <button data-filter="PR">PR</button>
+        <button data-filter="GR">GR</button>
+        <button data-filter="CN">Caminos naturales</button>
+      </div>
+      <div id="catalog-preview" class="cat-preview" hidden></div>
+      <ul id="catalog-list" class="list"></ul>
+      <p class="hint cat-source">Fuente: IGN · Naturaleza, Cultura y Ocio (senderos homologados GR/PR/SL de FEDME, Vías Verdes y Caminos Naturales del MAPA). La cobertura varía por comunidad: hay muchas rutas en Asturias, Aragón, Galicia o la Comunitat Valenciana, y pocas en Madrid. «Con niños» incluye vías verdes, senderos locales y rutas de hasta 8 km; al abrir una ruta se comprueba su desnivel.</p>
+    </div>
     <div id="sheet-zones" class="pane" hidden>
       <header class="pane-head">
         <h2>Mapas sin conexión</h2>
