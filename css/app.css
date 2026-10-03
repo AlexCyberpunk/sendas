@@ -348,3 +348,21 @@ dialog .share-fields label.na { color: var(--muted); opacity: .6; }
 .mode-bar { border-left-color: #ff6f00; }
 .mode-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 8px; }
 .mode-grid .btn.on { border-color: var(--primary); color: var(--primary); box-shadow: 0 0 0 2px var(--primary) inset; }
+
+/* ---------- options / profiles / gaps ---------- */
+.opt-h { margin: 14px 0 6px; font-size: 14px; }
+.profile-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 8px; }
+.profile-card { position: relative; background: var(--surface); border: 2px solid var(--border); border-radius: 10px; padding: 6px; cursor: pointer; font-size: 13px; font-weight: 600; text-align: center; }
+.profile-card.on { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary); }
+.profile-preview { position: relative; height: 64px; border-radius: 6px; overflow: hidden; margin-bottom: 4px; background: #dfe6d8; }
+.profile-preview canvas, .profile-preview svg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.profile-card .del { position: absolute; top: 2px; right: 2px; width: 24px; height: 24px; border-radius: 50%; border: 0; background: rgba(0,0,0,.6); color: #fff; font-size: 12px; cursor: pointer; }
+.profile-form label { display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+.profile-form label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--text); }
+.profile-form input[type=range] { width: 100%; accent-color: var(--primary); }
+.profile-form input[type=checkbox] { accent-color: var(--primary); width: 18px; height: 18px; margin: 0; }
+.track-colors { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.track-colors button { width: 32px; height: 32px; border-radius: 50%; border: 3px solid var(--surface); box-shadow: 0 0 0 1px var(--border); cursor: pointer; padding: 0; }
+.track-colors button.on { box-shadow: 0 0 0 3px var(--primary); }
+.gaps-line { border-left-color: #ff9800; }
+.gaps-line .btn { margin-top: 6px; }

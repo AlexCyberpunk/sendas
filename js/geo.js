@@ -14,8 +14,9 @@ export function bearing(lat1, lon1, lat2, lon2) {
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
 
-// Point format: [lat, lon, gpsAlt|null, timestampMs (0 = untimed), segment, demAlt|null]
-export const P = { LAT: 0, LON: 1, ALT: 2, T: 3, SEG: 4, DEM: 5 };
+// Point format: [lat, lon, gpsAlt|null, timestampMs (0 = untimed), segment, demAlt|null, filled?]
+// filled = 1 marks points synthesised to bridge a stretch without GPS.
+export const P = { LAT: 0, LON: 1, ALT: 2, T: 3, SEG: 4, DEM: 5, FILL: 6 };
 
 const MOVING_SPEED = 0.3;
 

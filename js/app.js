@@ -16,6 +16,9 @@ import { VoiceRecorder, saveVoice, voicesOf, deleteVoice, deleteVoicesOf } from 
 import { Simulation } from './simulate.js';
 import { LockScreen } from './lock.js';
 import { detectModes, applyMode, rangeInfo, modesSummary } from './modes.js';
+import { fillGaps, gapsSummary } from './gaps.js';
+import { allProfiles, activeId, activeProfile, setActive, editActive, saveAs, remove as removeProfile, cssFilter, TRACK_COLORS } from './prefs.js';
+import { tileUrl } from './layers.js';
 import { open3D, init3D } from './view3d.js';
 import { openPanorama, initPanorama } from './panorama.js';
 import { openShare, initShare } from './shareimg.js';
@@ -46,6 +49,7 @@ for (const [id, def] of Object.entries(LAYERS)) {
     subdomains: def.subdomains ?? 'abc',
     attribution: def.attribution,
     crossOrigin: true,
+    className: 'base-layer',
   });
   layer.layerId = id;
   baseLayers[def.name] = layer;
@@ -104,6 +108,13 @@ const viewLayer = L.featureGroup().addTo(map);
 const zoneLayer = L.featureGroup().addTo(map);
 const followLine = L.polyline([], { color: '#1565c0', weight: 8, opacity: 0.45, interactive: false }).addTo(map);
 const liveLine = L.polyline([], { color: TRACK_COLOR, weight: 5, opacity: 0.9, interactive: false }).addTo(map);
+const filterStyle = document.head.appendChild(document.createElement('style'));
+function applyProfile() {
+  const p = activeProfile();
+  filterStyle.textContent = `.base-layer { filter: ${cssFilter(p)}; }`;
+  liveLine.setStyle({ color: p.track, weight: p.width });
+}
+applyProfile();
 const liveWaypoints = L.layerGroup().addTo(map);
 const posMarker = L.marker([0, 0], { icon: L.divIcon({ className: 'pos-dot', iconSize: [18, 18] }), interactive: false, keyboard: false, zIndexOffset: 1000 });
 const accCircle = L.circle([0, 0], { radius: 1, color: '#1a73e8', weight: 1, fillOpacity: 0.08, interactive: false });
@@ -309,9 +320,14 @@ async function keepAwake(on) {
   } catch { /* wake lock refused (e.g. battery saver) */ }
 }
 
+let hiddenAt = null;
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && tracker.state === 'recording') keepAwake(true);
-  if (document.visibilityState === 'hidden') tracker.persist();
+  if (document.visibilityState === 'visible' && tracker.state === 'recording') {
+    keepAwake(true);
+    const away = hiddenAt ? (Date.now() - hiddenAt) / 60000 : 0;
+    if (away >= 1.5) toast(`La app estuvo ${Math.round(away)} min en segundo plano sin GPS. Al guardar, ese tramo se rellenará por el sendero.`, 7000);
+  }
+  if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); tracker.persist(); } else hiddenAt = null;
 });
 window.addEventListener('pagehide', () => tracker.persist());
 
@@ -452,9 +468,12 @@ $('#btn-finish').addEventListener('click', async () => {
   if (action === 'save') {
     walk.name = data.name.trim() || 'Paseo';
     walk.modes = detectModes(walk.points);
+    if (walk.points.some((p, i) => i && p[P.T] - walk.points[i - 1][P.T] > 90000)) toast('Rellenando tramos sin GPS…');
+    await fillGaps(walk).catch(() => 0);
     walk.stats = computeStats(walk.points, walk.modes);
     walk.notes = data.notes.trim();
     await enrichWithDem(walk).catch(() => false);
+    walk.stats = computeStats(walk.points, walk.modes);
     await db.put('walks', walk);
     await tracker.reset();
     livePhotos.clear();
@@ -605,6 +624,7 @@ $('#btn-3d').addEventListener('click', () => {
   if (planner.active) tracks.push(planner.points().map(([a, b]) => [a, b]));
   const fix = freshFix();
   open3D({
+    profile: activeProfile(),
     layerId: currentLayerId,
     center: map.getCenter(),
     zoom: map.getZoom(),
@@ -632,7 +652,7 @@ let planning = false;
 let simulating = false;
 
 function showPane(name) {
-  for (const p of ['walks', 'detail', 'zones']) $(`#sheet-${p}`).hidden = p !== name;
+  for (const p of ['walks', 'detail', 'zones', 'options']) $(`#sheet-${p}`).hidden = p !== name;
   $('#sheet').classList.toggle('compact', name === 'detail');
   $('#sheet').scrollTop = 0;
 }
@@ -647,6 +667,7 @@ function showTab(tab) {
   if (tab !== 'zones') zoneLayer.clearLayers();
   if (tab === 'walks') { viewLayer.clearLayers(); viewPhotos.clear(); viewedWalk = null; showPane('walks'); renderWalks(); }
   if (tab === 'zones') { showPane('zones'); renderZones(); }
+  if (tab === 'options') { showPane('options'); renderOptions(); }
   updateLegend();
 }
 document.querySelectorAll('.tabbar button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
@@ -705,13 +726,15 @@ function profileSVG(points, modes) {
 function showWalkOnMap(w, fit = true) {
   viewLayer.clearLayers();
   const rings = segments(w.points).map((s) => s.map((p) => [p[P.LAT], p[P.LON]]));
-  L.polyline(rings, { color: '#ffffff', weight: 8, opacity: 0.9, interactive: false }).addTo(viewLayer);
+  const prof = activeProfile();
+  L.polyline(rings, { color: '#ffffff', weight: prof.width + 3, opacity: 0.9, interactive: false }).addTo(viewLayer);
   for (const c of gradeChunks(w.points, 50, w.modes)) {
-    L.polyline(c.latlngs, { color: gradeColor(c.grade), weight: 5, opacity: 0.95 })
+    L.polyline(c.latlngs, { color: prof.byGrade ? gradeColor(c.grade) : prof.track, weight: prof.width, opacity: 0.95 })
       .bindTooltip(`Pendiente ${c.grade >= 0 ? '+' : ''}${Math.round(c.grade)} %`, { sticky: true })
       .addTo(viewLayer);
   }
   for (const r of w.modes ?? []) drawModeRange(viewLayer, w.points, r, () => editRange(w, r));
+  for (const g of w.gaps ?? []) drawGap(viewLayer, w.points, g);
   const first = w.points[0];
   const last = w.points[w.points.length - 1];
   L.marker([first[P.LAT], first[P.LON]], { icon: dotIcon('#2e9e4f'), title: 'Inicio' }).addTo(viewLayer);
@@ -747,6 +770,16 @@ async function openWalk(id, { keepView = false } = {}) {
   renderDetail(w);
   showPane('detail');
   showWalkOnMap(w, !keepView);
+  if (!w.gapsChecked && isTimed(w)) {
+    fillGaps(w).then(async (n) => {
+      w.stats = computeStats(w.points, w.modes);
+      await db.put('walks', w);
+      if (n && $('#sheet-detail').dataset.id === id) {
+        toast(gapsSummary(w.gaps), 6000);
+        openWalk(id, { keepView: true });
+      }
+    }).catch(() => {});
+  }
   const [photos, notes] = await Promise.all([photosOf(id), voicesOf(id)]);
   viewPhotos.show(photos);
   renderGallery(photos);
@@ -795,6 +828,7 @@ function renderDetail(w) {
     </header>
     <h2 style="margin:0 0 2px;font-size:20px">${esc(w.name)}${isPlan(w) ? '<span class="tag">Planificada</span>' : ''}</h2>
     <p class="hint">${fmt.datetime(w.start)}${w.imported ? ' · importado' : ''} · Altitud: ${s.source === 'dem' ? 'modelo del terreno' : 'GPS'}</p>
+    ${w.gaps?.length ? `<p class="modes-line gaps-line">${esc(gapsSummary(w.gaps))}. Los tramos sin GPS salen en naranja discontinuo.${w.gaps.some((g) => g.method === 'straight') ? ' <button class="btn small" data-act="refill">Reintentar relleno</button>' : ''}</p>` : ''}
     ${hasModes ? `<p class="modes-line">${esc(modesSummary(s))}. Ritmo, desnivel y tiempo andando cuentan solo lo hecho a pie.</p>` : ''}
     <div class="detail-stats">${cells.map(([v, l]) => `<div><span>${v}</span><small>${l}</small></div>`).join('')}</div>
     ${sunNote}
@@ -922,12 +956,21 @@ $('#sheet-detail').addEventListener('click', async (e) => {
   if (act === 'share') openShare(w);
   if (act === 'simulate') startSimulation(w);
   if (act === 'modes') startModeEdit(w);
+  if (act === 'refill') {
+    if (!navigator.onLine) { toast('Necesitas conexión para rellenar por sendero'); return; }
+    toast('Rellenando huecos…');
+    await fillGaps(w);
+    w.stats = computeStats(w.points, w.modes);
+    await db.put('walks', w);
+    toast(gapsSummary(w.gaps) || 'Sin huecos');
+    openWalk(w.id, { keepView: true });
+  }
   if (act === 'voice') {
     const note = await recordVoice(w.id);
     if (note) openWalk(w.id, { keepView: true });
   }
   if (act === '3d') {
-    open3D({ layerId: currentLayerId, center: map.getCenter(), zoom: map.getZoom(), tracks: segments(w.points).map((s) => s.map((p) => [p[P.LAT], p[P.LON]])) });
+    open3D({ profile: activeProfile(), layerId: currentLayerId, center: map.getCenter(), zoom: map.getZoom(), tracks: segments(w.points).map((s) => s.map((p) => [p[P.LAT], p[P.LON]])) });
   }
   if (act === 'edit') {
     $('#dlg-save-title').textContent = isPlan(w) ? 'Editar ruta' : 'Editar paseo';
@@ -1046,6 +1089,22 @@ $('#pl-save').addEventListener('click', async () => {
   toast('Ruta guardada');
   openWalk(walk.id);
 });
+
+// ---------- Gaps without GPS ----------
+const GAP_TEXT = {
+  route: 'Relleno por el sendero más probable: no es la traza real.',
+  vehicle: 'Ibas demasiado rápido para andar: se cuenta como vehículo.',
+  straight: 'Unido en línea recta (no había conexión para buscar el sendero).',
+};
+function drawGap(layer, points, g) {
+  const latlngs = points.slice(g.from, g.to + 1).map((p) => [p[P.LAT], p[P.LON]]);
+  if (latlngs.length < 2) return;
+  L.polyline(latlngs, { color: '#ff9800', weight: activeProfile().width, dashArray: '3 9', opacity: 1, interactive: false }).addTo(layer);
+  const mid = latlngs[Math.floor(latlngs.length / 2)];
+  L.marker(mid, { icon: L.divIcon({ className: 'mode-label', html: `<span style="border-color:#ff9800">Sin GPS · ${g.minutes} min</span>`, iconSize: null }), keyboard: false })
+    .bindPopup(`<b>${g.minutes} min sin GPS</b><br>${GAP_TEXT[g.method] ?? ''}`)
+    .addTo(layer);
+}
 
 // ---------- Transport modes ----------
 const MODE_STYLE = {
@@ -1305,6 +1364,108 @@ $('#btn-lock').addEventListener('click', () => {
   renderLock();
 });
 setInterval(() => { if (lockScreen.locked) renderLock(); }, 1000);
+
+// ---------- Options: display profiles ----------
+const PREVIEW_TILE = tileUrl('mtn', 14, 8006, 6150);
+let previewImg = null;
+const loadPreview = () => (previewImg ??= new Promise((resolve, reject) => {
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => resolve(img);
+  img.onerror = () => { previewImg = null; reject(new Error('preview')); };
+  img.src = PREVIEW_TILE;
+}));
+
+// Previews are rendered into canvases: CSS filters on images inside the scrolling sheet
+// broke compositing (parts of the sheet turned transparent) on some GPUs.
+async function drawPreview(canvas, p) {
+  const img = await loadPreview().catch(() => null);
+  if (!img) return;
+  const g = canvas.getContext('2d', { willReadFrequently: true });
+  g.drawImage(img, 0, 64, 256, 128, 0, 0, canvas.width, canvas.height);
+  const data = g.getImageData(0, 0, canvas.width, canvas.height);
+  const d = data.data;
+  for (let i = 0; i < d.length; i += 4) {
+    let r = d[i]; let gr = d[i + 1]; let b = d[i + 2];
+    let lum = 0.2126 * r + 0.7152 * gr + 0.0722 * b;
+    r = lum + (r - lum) * p.sat; gr = lum + (gr - lum) * p.sat; b = lum + (b - lum) * p.sat;
+    r *= p.bright; gr *= p.bright; b *= p.bright;
+    r = (r - 128) * p.contrast + 128; gr = (gr - 128) * p.contrast + 128; b = (b - 128) * p.contrast + 128;
+    lum = 0.2126 * r + 0.7152 * gr + 0.0722 * b;
+    d[i] = r + (lum - r) * p.gray; d[i + 1] = gr + (lum - gr) * p.gray; d[i + 2] = b + (lum - b) * p.gray;
+  }
+  g.putImageData(data, 0, 0);
+}
+
+function profileChanged() {
+  applyProfile();
+  if (viewedWalk && !$('#sheet').hidden && !$('#sheet-detail').hidden) showWalkOnMap(viewedWalk, false);
+}
+
+function renderProfileList() {
+  const id = activeId();
+  $('#profile-list').innerHTML = Object.entries(allProfiles()).map(([pid, p]) => `
+    <div class="profile-card${pid === id ? ' on' : ''}" data-id="${esc(pid)}" role="button" tabindex="0">
+      <div class="profile-preview">
+        <canvas width="200" height="100" data-preview="${esc(pid)}"></canvas>
+        <svg viewBox="0 0 100 60" preserveAspectRatio="none"><path d="M5 50 C 30 10, 55 55, 95 12" fill="none" stroke="#fff" stroke-width="${p.width + 3}" stroke-linecap="round"/><path d="M5 50 C 30 10, 55 55, 95 12" fill="none" stroke="${p.byGrade ? '#f08a00' : p.track}" stroke-width="${p.width}" stroke-linecap="round"/></svg>
+      </div>
+      <span>${esc(p.name)}</span>
+      ${p.preset ? '' : `<button class="del" data-del="${esc(pid)}" title="Borrar perfil" aria-label="Borrar perfil">✕</button>`}
+    </div>`).join('');
+  const profiles = allProfiles();
+  document.querySelectorAll('#profile-list canvas[data-preview]').forEach((c) => drawPreview(c, profiles[c.dataset.preview]));
+}
+
+function renderOptions() {
+  renderProfileList();
+  const p = activeProfile();
+  const f = $('#profile-form').elements;
+  f.sat.value = Math.round(p.sat * 100);
+  f.bright.value = Math.round(p.bright * 100);
+  f.contrast.value = Math.round(p.contrast * 100);
+  f.gray.value = Math.round(p.gray * 100);
+  f.width.value = p.width;
+  f.byGrade.checked = p.byGrade;
+  $('#track-colors').innerHTML = TRACK_COLORS.map(([c, n]) => `<button type="button" data-color="${c}" title="${n}" aria-label="Recorrido ${n.toLowerCase()}" class="${c === p.track ? 'on' : ''}" style="background:${c}"></button>`).join('');
+  $('#profile-active-name').textContent = p.name;
+}
+
+$('#profile-list').addEventListener('click', (e) => {
+  const del = e.target.closest('[data-del]')?.dataset.del;
+  if (del) {
+    if (confirm('¿Borrar este perfil?')) { removeProfile(del); profileChanged(); renderOptions(); }
+    return;
+  }
+  const id = e.target.closest('[data-id]')?.dataset.id;
+  if (id) { setActive(id); profileChanged(); renderOptions(); }
+});
+$('#profile-form').addEventListener('input', (e) => {
+  const f = $('#profile-form').elements;
+  const change = {
+    sat: f.sat.value / 100, bright: f.bright.value / 100, contrast: f.contrast.value / 100, gray: f.gray.value / 100,
+    width: +f.width.value, byGrade: f.byGrade.checked,
+  };
+  editActive(change);
+  profileChanged();
+  renderProfileList();
+  $('#profile-active-name').textContent = activeProfile().name;
+  if (e.target.name === 'byGrade') renderOptions();
+});
+$('#track-colors').addEventListener('click', (e) => {
+  const c = e.target.closest('[data-color]')?.dataset.color;
+  if (!c) return;
+  editActive({ track: c, byGrade: false });
+  profileChanged();
+  renderOptions();
+});
+$('#profile-save-as').addEventListener('click', () => {
+  const name = prompt('Nombre del perfil', `Mi perfil ${Object.keys(allProfiles()).length - 3}`);
+  if (!name?.trim()) return;
+  saveAs(name.trim().slice(0, 40));
+  renderOptions();
+  toast('Perfil guardado');
+});
 
 // ---------- Offline zones ----------
 const OFFLINE_LAYERS = Object.entries(LAYERS).filter(([, d]) => d.offline);

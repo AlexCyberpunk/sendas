@@ -135,6 +135,25 @@
       <p id="storage-info" class="hint"></p>
       <ul id="zone-list" class="list"></ul>
     </div>
+    <div id="sheet-options" class="pane" hidden>
+      <header class="pane-head"><h2>Opciones</h2></header>
+      <h4 class="opt-h">Perfil de colores del mapa</h4>
+      <p class="hint">Cambia cómo se ve el mapa base para que el recorrido destaque. Las capas superpuestas no se modifican.</p>
+      <div id="profile-list" class="profile-list"></div>
+      <form id="profile-form" class="profile-form" onsubmit="return false">
+        <h4 class="opt-h">Ajustar «<span id="profile-active-name"></span>»</h4>
+        <label>Saturación<input type="range" name="sat" min="0" max="150"></label>
+        <label>Brillo<input type="range" name="bright" min="70" max="130"></label>
+        <label>Contraste<input type="range" name="contrast" min="70" max="150"></label>
+        <label>Escala de grises<input type="range" name="gray" min="0" max="100"></label>
+        <h4 class="opt-h">Recorrido</h4>
+        <div id="track-colors" class="track-colors"></div>
+        <label>Grosor<input type="range" name="width" min="3" max="9"></label>
+        <label class="check"><input type="checkbox" name="byGrade"> Colorear el recorrido por pendiente</label>
+        <button type="button" id="profile-save-as" class="btn small">Guardar como perfil nuevo…</button>
+        <p class="hint">Al tocar un ajuste sobre un perfil predefinido se crea «Personalizado»; guárdalo con nombre para conservarlo.</p>
+      </form>
+    </div>
   </section>
 
   <nav class="tabbar">
@@ -146,6 +165,9 @@
     </button>
     <button data-tab="zones">
       <svg viewBox="0 0 24 24" class="stroke"><path d="M12 3v11m0 0-4-4m4 4 4-4M4 17v3h16v-3"/></svg>Offline
+    </button>
+    <button data-tab="options">
+      <svg viewBox="0 0 24 24" class="stroke"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>Opciones
     </button>
   </nav>
 

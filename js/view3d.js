@@ -33,7 +33,18 @@ function baseTiles(def) {
   return (def.subdomains || 'abc').split('').map((s) => def.url.replace('{s}', s));
 }
 
-function style(layerId) {
+function rasterPaint(p) {
+  if (!p) return {};
+  const clamp = (v) => Math.max(-1, Math.min(1, v));
+  return {
+    'raster-saturation': p.gray >= 0.5 ? -1 : clamp(p.sat - 1),
+    'raster-contrast': clamp(p.contrast - 1),
+    'raster-brightness-min': Math.max(0, Math.min(1, p.bright - 1)),
+    'raster-brightness-max': Math.max(0, Math.min(1, p.bright)),
+  };
+}
+
+function style(layerId, profile) {
   const def = LAYERS[layerId];
   const dem = { type: 'raster-dem', tiles: [demUrl('{z}', '{x}', '{y}')], encoding: 'terrarium', tileSize: 256, maxzoom: DEM_Z };
   return {
@@ -46,7 +57,7 @@ function style(layerId) {
     },
     layers: [
       { id: 'bg', type: 'background', paint: { 'background-color': '#dfe6d8' } },
-      { id: 'base', type: 'raster', source: 'base' },
+      { id: 'base', type: 'raster', source: 'base', paint: rasterPaint(profile) },
       { id: 'hillshade', type: 'hillshade', source: 'hillshade', paint: { 'hillshade-exaggeration': 0.25 } },
       { id: 'slope', type: 'raster', source: 'slope', layout: { visibility: slopesOn ? 'visible' : 'none' }, paint: { 'raster-opacity': 0.75 } },
     ],
@@ -68,7 +79,7 @@ export function close3D() {
   $('#view3d').hidden = true;
 }
 
-export async function open3D({ layerId, center, zoom, tracks = [], position = null }) {
+export async function open3D({ layerId, center, zoom, tracks = [], position = null, profile = null }) {
   $('#view3d').hidden = false;
   $('#v3d-legend').innerHTML = slopeLegendHTML();
   try {
@@ -81,7 +92,7 @@ export async function open3D({ layerId, center, zoom, tracks = [], position = nu
   map3d?.remove();
   map3d = new window.maplibregl.Map({
     container: 'map3d',
-    style: style(layerId),
+    style: style(layerId, profile),
     center: [center.lng, center.lat],
     // MapLibre zoom levels are one step lower than Leaflet's for the same scale.
     zoom: Math.max(1, zoom - 1),
@@ -96,7 +107,7 @@ export async function open3D({ layerId, center, zoom, tracks = [], position = nu
     const features = tracks.filter((t) => t.length > 1).map((t) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: t.map(([lat, lon]) => [lon, lat]) } }));
     map3d.addSource('tracks', { type: 'geojson', data: { type: 'FeatureCollection', features } });
     map3d.addLayer({ id: 'tracks-casing', type: 'line', source: 'tracks', paint: { 'line-color': '#ffffff', 'line-width': 7 }, layout: { 'line-join': 'round', 'line-cap': 'round' } });
-    map3d.addLayer({ id: 'tracks', type: 'line', source: 'tracks', paint: { 'line-color': '#d6452f', 'line-width': 4 }, layout: { 'line-join': 'round', 'line-cap': 'round' } });
+    map3d.addLayer({ id: 'tracks', type: 'line', source: 'tracks', paint: { 'line-color': profile?.track ?? '#d6452f', 'line-width': profile?.width ? profile.width - 1 : 4 }, layout: { 'line-join': 'round', 'line-cap': 'round' } });
     if (position) {
       const el = document.createElement('div');
       el.className = 'pos-dot';

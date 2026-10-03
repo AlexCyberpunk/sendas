@@ -12,7 +12,7 @@ function straight(a, b) {
   return out;
 }
 
-async function routed(a, b) {
+export async function routed(a, b) {
   const url = `${BROUTER}?lonlats=${a.lng.toFixed(6)},${a.lat.toFixed(6)}|${b.lng.toFixed(6)},${b.lat.toFixed(6)}&profile=hiking-mountain&alternativeidx=0&format=geojson`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`BRouter ${res.status}`);
