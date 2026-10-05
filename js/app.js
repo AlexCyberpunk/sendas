@@ -994,34 +994,76 @@ $('#sheet-detail').addEventListener('click', async (e) => {
   }
 });
 
-$('#gpx-input').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  e.target.value = '';
-  if (!file) return;
-  try {
-    const { name, points, waypoints, timed } = parseGPX(await file.text());
-    const modes = timed ? detectModes(points) : [];
-    const walk = {
-      id: crypto.randomUUID(),
-      name,
-      notes: '',
-      start: timed ? points.find((p) => p[P.T] > 0)[P.T] : Date.now(),
-      end: timed ? points[points.length - 1][P.T] : Date.now(),
-      points,
-      waypoints,
-      modes,
-      stats: computeStats(points, modes),
-      imported: true,
-      ...(timed ? {} : { kind: 'plan' }),
-    };
-    await enrichWithDem(walk).catch(() => false);
-    await db.put('walks', walk);
-    toast(`Importado: ${name}`);
-    openWalk(walk.id);
-  } catch (err) {
-    toast(err.message || 'No se pudo importar el archivo');
+async function importGPXFile(file, { open = true } = {}) {
+  const { name, points, waypoints, timed } = parseGPX(await file.text());
+  const modes = timed ? detectModes(points) : [];
+  const walk = {
+    id: crypto.randomUUID(),
+    name: name || file.name?.replace(/\.gpx$/i, '') || 'Ruta importada',
+    notes: '',
+    start: timed ? points.find((p) => p[P.T] > 0)[P.T] : Date.now(),
+    end: timed ? points[points.length - 1][P.T] : Date.now(),
+    points,
+    waypoints,
+    modes,
+    stats: computeStats(points, modes),
+    imported: true,
+    ...(timed ? {} : { kind: 'plan' }),
+  };
+  await enrichWithDem(walk).catch(() => false);
+  await db.put('walks', walk);
+  if (open) openWalk(walk.id);
+  return walk;
+}
+
+async function importGPXFiles(files) {
+  const done = [];
+  for (const file of files) {
+    try {
+      done.push(await importGPXFile(file, { open: false }));
+    } catch (err) {
+      toast(`${file.name || 'Archivo'}: ${err.message || 'no se pudo importar'}`, 5000);
+    }
   }
+  if (!done.length) return;
+  toast(done.length === 1 ? `Importado: ${done[0].name}` : `Importados ${done.length} archivos GPX`);
+  if (done.length === 1) openWalk(done[0].id);
+  else showTab('walks');
+}
+
+$('#gpx-input').addEventListener('change', async (e) => {
+  const files = [...e.target.files];
+  e.target.value = '';
+  if (files.length) await importGPXFiles(files);
 });
+
+// GPX shared from other apps (Android share sheet → Web Share Target). The service worker
+// receives the POST, keeps the files in a cache and redirects here with ?shared=1.
+async function importSharedGPX() {
+  const url = new URL(location.href);
+  if (!url.searchParams.has('shared')) return;
+  history.replaceState(null, '', url.pathname);
+  if (!('caches' in window)) return;
+  const cache = await caches.open('shared-gpx');
+  const reqs = await cache.keys();
+  const files = [];
+  for (const req of reqs) {
+    const res = await cache.match(req);
+    const name = decodeURIComponent(res.headers.get('X-Filename') || 'ruta.gpx');
+    files.push(new File([await res.blob()], name));
+    await cache.delete(req);
+  }
+  if (files.length) await importGPXFiles(files);
+  else toast('No llegó ningún archivo GPX');
+}
+
+// "Open with" on desktop Chrome / ChromeOS (manifest file_handlers).
+if ('launchQueue' in window) {
+  window.launchQueue.setConsumer(async ({ files }) => {
+    if (!files?.length) return;
+    await importGPXFiles(await Promise.all(files.map((h) => h.getFile())));
+  });
+}
 
 // ---------- Planner ----------
 const planner = new Planner(map);
@@ -1745,6 +1787,7 @@ tracker.restore().then(async (restored) => {
     liveVoices.show(await voicesOf(tracker.id));
   }
 });
+importSharedGPX().catch(() => toast('No se pudo leer el archivo compartido'));
 const savedFollow = store.get('follow');
 if (savedFollow) {
   db.get('walks', savedFollow.id).then((w) => { if (w) startFollowing(w, savedFollow.reversed); });

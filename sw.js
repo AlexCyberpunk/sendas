@@ -1,4 +1,4 @@
-const SHELL = 'shell-v12';
+const SHELL = 'shell-v13';
 const ASSETS = [
   './',
   'index.html',
@@ -63,8 +63,27 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;
-  if (req.method !== 'GET') return;
   const url = new URL(req.url);
+
+  // Web Share Target: GPX files shared from other apps (Android). Keep them in a cache
+  // until the page picks them up, then redirect to the app.
+  if (req.method === 'POST' && url.origin === self.location.origin && url.pathname.endsWith('/share-gpx')) {
+    event.respondWith((async () => {
+      try {
+        const form = await req.formData();
+        const cache = await caches.open('shared-gpx');
+        const files = form.getAll('gpx').filter((f) => f instanceof File && f.size);
+        await Promise.all(files.map((f, i) => cache.put(`shared-gpx/${Date.now()}-${i}`, new Response(f, {
+          headers: { 'Content-Type': 'application/gpx+xml', 'X-Filename': encodeURIComponent(f.name || 'ruta.gpx') },
+        }))));
+      } catch (e) {
+        console.warn('share target', e);
+      }
+      return Response.redirect(new URL('./?shared=1', self.registration.scope).href, 303);
+    })());
+    return;
+  }
+  if (req.method !== 'GET') return;
 
   const isDem = url.hostname === 's3.amazonaws.com' && url.pathname.startsWith('/elevation-tiles-prod/');
   if (isDem || TILE_HOSTS.some((h) => url.hostname === h || url.hostname.endsWith(`.${h}`))) {

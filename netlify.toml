@@ -10,3 +10,10 @@
   for = "/manifest.webmanifest"
   [headers.values]
     Content-Type = "application/manifest+json"
+
+# Share target fallback when the service worker isn't running yet: open the app instead of a 404.
+[[redirects]]
+  from = "/share-gpx"
+  to = "/?shared=1"
+  status = 303
+  force = true

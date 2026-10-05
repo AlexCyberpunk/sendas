@@ -225,7 +225,7 @@ export function parseGPX(text) {
     t: time(el),
     note: el.getElementsByTagName('name')[0]?.textContent || '',
   }));
-  const name = doc.querySelector('trk > name')?.textContent || doc.querySelector('metadata > name')?.textContent || 'Ruta importada';
+  const name = doc.querySelector('trk > name')?.textContent || doc.querySelector('metadata > name')?.textContent || '';
   return { name, points, waypoints, timed: points.some((p) => p[P.T] > 0) };
 }
 
